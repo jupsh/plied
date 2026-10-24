@@ -4,7 +4,7 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-10-24
 
 The first release. Record format 1, JSON envelope version 1.
 
