@@ -72,7 +72,7 @@ impl OwnKind {
         match self {
             OwnKind::Thread => &[
                 "id", "title", "parent", "status", "next", "actor", "due", "waiting_on", "uses", "approval", "outcome", "carries",
-                "closes_when", "revisit", "revisit_on", "backlog", "links", "cites",
+                "closes_when", "revisit", "revisit_on", "backlog", "links", "cites", "scanned",
             ],
             OwnKind::Commitment => &[
                 "id", "title", "wording", "summary", "made", "trigger", "state", "due", "applies", "nodes", "resolved_by", "links",
@@ -104,7 +104,7 @@ impl OwnKind {
     }
 }
 
-pub const LIST_FIELDS: [&str; 8] = ["waiting_on", "uses", "carries", "links", "nodes", "options", "cites", "reviews"];
+pub const LIST_FIELDS: [&str; 9] = ["waiting_on", "uses", "carries", "links", "nodes", "options", "cites", "reviews", "scanned"];
 
 static HISTORY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^- (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC\b(.*)$").unwrap());
 static REF_END: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\s,;]").unwrap());
@@ -129,6 +129,11 @@ pub fn ref_id(r: &str) -> String {
 /// The id in a reference held by a frontmatter value (empty for collections).
 pub fn node_ref(n: &Node) -> String {
     n.scalar().map(|s| ref_id(&s)).unwrap_or_default()
+}
+
+/// Whether `s` can stand for a revision: at least 8 leading digits of a lowercase hex SHA-256 (§3).
+pub fn is_rev(s: &str) -> bool {
+    (8..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// The current minute, UTC.
@@ -269,6 +274,21 @@ impl Record {
             }
         }
         out
+    }
+
+    /// (record, revision) for each `scanned` item that names both, the revision being a valid one
+    /// (§3.3). Not references: a scan review neither links nor attaches anything.
+    pub fn scanned(&self) -> Vec<(String, String)> {
+        let items = self.meta.get("scanned").map(Node::items).unwrap_or_default();
+        items
+            .iter()
+            .filter_map(Node::map)
+            .filter_map(|sc| {
+                let rid = doc::set(sc, "record").map(node_ref).filter(|r| !r.is_empty())?;
+                let rev = doc::text(sc, "rev").map(|r| r.trim().to_string()).filter(|r| is_rev(r))?;
+                Some((rid, rev))
+            })
+            .collect()
     }
 
     pub fn history(&self) -> Vec<(DateTime<Utc>, String)> {

@@ -30,6 +30,11 @@ Within one format, the rules on unknown things are fixed:
 - the `--json` envelope may gain fields but never loses or retypes one
   without a new envelope version (§11.1).
 
+A later plied version may add optional record fields within format 1. An
+earlier version reports them as unknown fields, so a store that uses one
+should set `requires` to the version that added it. Each field below that was
+added after 0.1.0 says when.
+
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
 ## 1. Where things live
@@ -270,6 +275,7 @@ unless its type says otherwise.
 | `backlog` | ref to a linked record | no | |
 | `links` | refs | no | linking a commitment attaches it (§12) |
 | `cites` | citations | no | §10 |
+| `scanned` | list of mappings | no | scan reviews: linked records read for commitments and found to hold none to record (§8). Added in 0.2.0 |
 
 `status` is one of `open` (nothing named stops it), `waiting` (on
 `waiting_on`), `held` (by a decision), `parked` (set aside), `closed`
@@ -298,6 +304,12 @@ A `reviews` item has `action` (text, required: compared exactly),
 required), `at` (text: `plied dispose` writes `YYYY-MM-DD HH:MM UTC`), `by`
 (text: the agent as claimed), `because` (prose) and `ref` (text: a reference
 by convention, not checked).
+
+A `scanned` item has `record` (ref to a linked record, required), `rev` (that
+record's revision as read, at least 8 lowercase hex digits, required; `plied
+scanned` writes all 64), `at`, `by` and `because`, as for `reviews`. Items
+are only ever appended. A scan review is not a reference in the sense of
+§12: it attaches no commitment.
 
 **Question**
 
@@ -511,9 +523,9 @@ decision, is a new error.
 | `parse` | the file | — | the frontmatter breaks §3.1 |
 | `id` | the file | — | an id is missing or malformed, or the file name does not start with it |
 | `duplicate` | the file | — | another file uses the same id |
-| `field` | the record | the field: `next`, `actor`, `due`, `revisit_on`, `applies`, `approval.state`, `cites.kind`, `reviews[<i>].action`, an unknown field's name, … | an unknown field or subfield; a value of the wrong type or outside its allowed values (§3.3) |
+| `field` | the record | the field: `next`, `actor`, `due`, `revisit_on`, `applies`, `approval.state`, `cites.kind`, `reviews[<i>].action`, `scanned[<i>].record`, `scanned[<i>].rev`, an unknown field's name, … | an unknown field or subfield; a value of the wrong type or outside its allowed values (§3.3) |
 | `required` | the record | the field: `title`, `outcome`, `outcome.quote`, `outcome.source`, `wording.quote`, `wording.source`, `approval.by`, `resolved_by`, `raised`, `answered_by` | a required field is missing |
-| `ref` | the record | `<field>:<id>` | a broken reference (saying when it may be sealed); a reference to the wrong kind (`parent` not a thread, `nodes` not a thread or question, `backlog` a plied record); a node depending on itself |
+| `ref` | the record | `<field>:<id>` | a broken reference (saying when it may be sealed); a reference to the wrong kind (`parent` not a thread, `nodes` not a thread or question, `backlog` or `scanned` a plied record); a node depending on itself |
 | `state` | the record | `status` or `state` (invalid value), `next` (on a node that is not open), `waiting_on` (`waiting` without it), `waiting_on:<id>` (one per unresolved dependency of an `open` node), `group`, `outcome`, `carries` | a state that contradicts the other fields |
 | `quote` | the record | `outcome` or `wording` | a quotation does not match (§3.6) |
 | `authority` | the record | `<approval, answer or waiver>:<decision id>` | §4 |
@@ -532,7 +544,8 @@ cannot be verified; a waiting node whose `waiting_on` is all resolved; a
 commitment attached to nothing; a body mentioning ids that do not exist; a
 node older than a dated linked record that cites what it links; a scanned
 source record with a commitment phrase that no commitment links
-(`scan_commitments`, from `commitments_since`); an unlinked record of a
+(code `commitment?`; `scan_commitments`, from `commitments_since`) and that
+no thread's `scanned` covers at its current revision; an unlinked record of a
 `require_linked` source; a stale view; citation warnings (§10); a date that
 asks for attention (§3.3, code `date`); a review whose action has a kind not
 in `checks.action_kinds` (code `action`, a warning so that adopting a
@@ -624,7 +637,11 @@ appends one history line (§3.5) that says what changed, followed by `--why`.
 **Other writes.** `plied note` adds only a history line. `plied replace`
 takes a whole file. It must keep the record's id, and it gets a history line
 like any write. `plied dispose` appends one `reviews` item (§3.3) and never
-edits an earlier one.
+edits an earlier one. `plied scanned R --rev REV --on T --because …`
+appends one `scanned` item to thread `T`, after checking that `R` is a linked
+record of a source with `scan_commitments` and that its revision still starts
+with `REV`. Otherwise it is a conflict (exit 3, with `detail` naming `R`), so
+a review always covers what was read.
 
 **Side effects of reading.** `plied inbox` records `read` for the messages it
 shows, unless `--peek` is given. `plied show` adds the revision it shows to
@@ -736,7 +753,7 @@ command:
 |---|---|
 | `init` | `{path}` |
 | `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]` |
-| `new`, `set`, `note`, `replace`, `dispose` | `{id, rev}` |
+| `new`, `set`, `note`, `replace`, `dispose`, `scanned` | `{id, rev}`: the record written |
 | `list` | `[{id, kind, title, state, rev, path}]` |
 | `find` | records without `body` and `text` |
 | `backlinks` | `[{id, how}]`, as in `show` |

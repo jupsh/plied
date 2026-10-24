@@ -13,7 +13,7 @@ use crate::doc::{self, Node};
 use crate::fsx::rel;
 use crate::literature::{Library, Status};
 use crate::messages::Messages;
-use crate::records::{Applies, CommitmentState, Disposition, OwnKind, QuestionState, Record, Store, ThreadStatus, node_ref, ref_id};
+use crate::records::{Applies, CommitmentState, Disposition, OwnKind, QuestionState, Record, Store, ThreadStatus, is_rev, node_ref, ref_id};
 use crate::textmatch;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
@@ -161,6 +161,7 @@ fn subfields(field: &str) -> Option<&'static [&'static str]> {
         "outcome" => Some(&["quote", "ref"]),
         "cites" => Some(&["paper", "page", "quote", "kind", "image_checked", "note"]),
         "reviews" => Some(&["action", "disposition", "at", "by", "because", "ref"]),
+        "scanned" => Some(&["record", "rev", "at", "by", "because"]),
         _ => None,
     }
 }
@@ -217,15 +218,20 @@ fn fields(r: &Record, at: &str, p: &mut Report) {
     }
 }
 
+/// A broken reference's message, saying when the record may be sealed.
+fn missing(store: &Store, f: &str, rid: &str) -> String {
+    if store.maybe_sealed(rid) {
+        format!("{f}: {rid} does not exist or is in a sealed path (plied cannot verify what it may not read)")
+    } else {
+        format!("{f}: {rid} does not exist")
+    }
+}
+
 fn refs(store: &Store, r: &Record, at: &str, p: &mut Report) {
     for (f, rid) in r.refs() {
         let subject = format!("{f}:{rid}");
         let Some(t) = store.get(&rid) else {
-            if store.maybe_sealed(&rid) {
-                p.err("ref", at, &subject, format!("{f}: {rid} does not exist or is in a sealed path (plied cannot verify what it may not read)"));
-            } else {
-                p.err("ref", at, &subject, format!("{f}: {rid} does not exist"));
-            }
+            p.err("ref", at, &subject, missing(store, f, &rid));
             continue;
         };
         match f {
@@ -355,6 +361,21 @@ fn thread(store: &Store, r: &Record, at: &str, p: &mut Report) {
     }
     if doc::set(m, "carries").is_some() && status.is_some_and(|s| s != ThreadStatus::Closed) {
         p.err("state", at, "carries", "carries is for closed nodes");
+    }
+    // scan reviews are only ever appended, so an index names the same one in every later state
+    for (i, sc) in m.get("scanned").map(Node::items).unwrap_or_default().iter().enumerate() {
+        let Some(sc) = sc.map() else { continue };
+        match doc::set(sc, "record").map(node_ref).filter(|x| !x.is_empty()) {
+            None => p.err("field", at, &format!("scanned[{i}].record"), "a scan review needs the record it read"),
+            Some(rid) => match store.get(&rid) {
+                None => p.err("ref", at, &format!("scanned:{rid}"), missing(store, "scanned", &rid)),
+                Some(t) if t.is_own() => p.err("ref", at, &format!("scanned:{rid}"), format!("scanned: {rid} is a plied record, not a linked one")),
+                Some(_) => {}
+            },
+        }
+        if !doc::text(sc, "rev").is_some_and(|x| is_rev(x.trim())) {
+            p.err("field", at, &format!("scanned[{i}].rev"), "a scan review needs the revision it read (at least 8 lowercase hex digits)");
+        }
     }
     if let Some(Node::Map(ap)) = m.get("approval") {
         match ap.get("state").and_then(Node::str) {
@@ -581,6 +602,13 @@ fn unrecorded_commitments(store: &Store, p: &mut Report) {
         linked.extend(c.meta.get("made").map(node_ref));
         linked.extend(c.ref_list("links"));
     }
+    // a scan review covers the revision it read, so an edited record is scanned again
+    let mut scanned: HashMap<String, Vec<(&str, String)>> = HashMap::new();
+    for t in store.own(Some(OwnKind::Thread)) {
+        for (rid, rev) in t.scanned() {
+            scanned.entry(rid).or_default().push((&t.id, rev));
+        }
+    }
     let since = cfg.commitments_since.as_deref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()).and_then(|d| d.and_hms_opt(0, 0, 0)).map(|d| d.and_utc());
     for r in store.linked() {
         if !r.source().is_some_and(|s| s.scan_commitments) || linked.contains(&r.id) {
@@ -591,9 +619,16 @@ fn unrecorded_commitments(store: &Store, p: &mut Report) {
         {
             continue;
         }
-        if let Some(hit) = phrases.iter().find(|x| x.search(&r.body)) {
-            p.warn("commitment?", &r.id, format!("contains a conditional or deferral ({}) that no commitment links to", hit.pattern));
+        let Some(hit) = phrases.iter().find(|x| x.search(&r.body)) else { continue };
+        let reviews = scanned.get(&r.id).map(Vec::as_slice).unwrap_or_default();
+        if reviews.iter().any(|(_, rev)| r.rev.starts_with(rev.as_str())) {
+            continue;
         }
+        let more = match reviews.last() {
+            Some((t, rev)) => format!("; {t} records a scan of revision {}, and the record has changed since", doc::take(rev, 12)),
+            None => format!(" (if it holds none, record that: `plied scanned {} --rev … --on <thread> …`)", r.id),
+        };
+        p.warn("commitment?", &r.id, format!("contains a conditional or deferral ({}) that no commitment links to{more}", hit.pattern));
     }
 }
 

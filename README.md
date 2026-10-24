@@ -292,6 +292,13 @@ conditionals and deferrals that no commitment records) and `require_linked`
 (warn when no plied record links to an item). Linked records stay
 authoritative: plied cites them and never restates them.
 
+When a scanned record turns out to hold no commitment, say so on a thread, and
+the warning stays quiet until the record changes:
+
+```
+plied scanned D134 --rev <D134 rev> --on T009 --because "describes a past deferral" --expect <T009 rev>
+```
+
 ## Configuration reference
 
 ```toml

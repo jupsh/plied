@@ -517,3 +517,115 @@ fn pruning_the_cache_keeps_the_guard_evidence() {
     let out = p.run(&["guard", "pre-commit"]);
     assert!(out.status.success(), "{}", text(&out));
 }
+
+// ------------------------------------------------------------- §8 commitment scan reviews
+
+/// `two_threads` plus a scanned source, `notes/N001.md`, whose body has a commitment phrase.
+fn scanned_note() -> Proj {
+    let p = two_threads();
+    p.append_config("[[sources]]\nname = \"notes\"\nglob = \"notes/*.md\"\nid = \"^N[0-9]{3}$\"\nscan_commitments = true\n");
+    std::fs::create_dir_all(p.path().join("notes")).unwrap();
+    std::fs::write(p.path().join("notes/N001.md"), "---\nid: N001\ntitle: A note\n---\nThe rerun was deferred last week.\n").unwrap();
+    p
+}
+
+/// The `check --json` diagnostics as (level, code, where, subject).
+fn diagnostics(p: &Proj) -> Vec<(String, String, String, String)> {
+    let v = envelope(&p.run(&["check", "--json"]));
+    let s = |d: &serde_json::Value, k: &str| d[k].as_str().unwrap_or_default().to_string();
+    v["result"]["diagnostics"].as_array().unwrap().iter().map(|d| (s(d, "level"), s(d, "code"), s(d, "where"), s(d, "subject"))).collect()
+}
+
+fn scan_warned(p: &Proj) -> bool {
+    diagnostics(p).iter().any(|(l, c, w, _)| l == "warning" && c == "commitment?" && w == "N001")
+}
+
+fn scan(p: &Proj, rev: &str) -> std::process::Output {
+    p.run(&["scanned", "N001", "--rev", rev, "--on", "T001", "--because", "describes the past", "--expect", &p.rev("T001")])
+}
+
+#[test]
+fn a_scan_review_covers_the_revision_it_read() {
+    let p = scanned_note();
+    assert!(scan_warned(&p));
+    let read = p.rev("N001");
+    let out = scan(&p, &read[..8]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(!scan_warned(&p), "a reviewed revision no longer warns");
+    // the review is kept in full: who, when, why, and the whole revision
+    let t = envelope(&p.run(&["show", "T001", "--json"]));
+    let sc = &t["result"]["scanned"][0];
+    assert_eq!((sc["record"].as_str(), sc["rev"].as_str()), (Some("N001"), Some(read.as_str())));
+    assert!(sc["by"].as_str().unwrap().starts_with("alice") && sc["because"] == "describes the past" && sc["at"].is_string(), "{sc}");
+    // backlinks say how the thread cites it
+    assert!(p.ok(&["backlinks", "N001"]).contains("scanned"));
+
+    // an edited record is scanned again; the warning keeps its identity and names the old review
+    p.edit("notes/N001.md", "last week.", "last week, and is still pending.");
+    assert!(scan_warned(&p));
+    assert!(p.ok(&["check"]).contains("T001 records a scan of revision"));
+    // a review of the revision read earlier is now a conflict
+    let stale = scan(&p, &read);
+    assert_eq!(stale.status.code(), Some(3), "{}", text(&stale));
+    let mut args = vec!["scanned", "N001", "--rev", &read, "--on", "T001", "--because", "x"];
+    let expect = p.rev("T001");
+    args.extend(["--expect", &expect, "--json"]);
+    let v = envelope(&p.run(&args));
+    assert_eq!(v["error"]["detail"]["id"], "N001");
+    assert_eq!(v["error"]["detail"]["current"], p.rev("N001").as_str());
+    assert!(scan(&p, &p.rev("N001")).status.success());
+    assert!(!scan_warned(&p));
+}
+
+#[test]
+fn only_a_scanned_linked_record_is_reviewed_on_a_thread() {
+    let p = scanned_note();
+    let rev = p.rev("N001");
+    p.evidence("E001", "", "Not scanned.");
+    let e001 = p.rev("E001");
+    let t002 = p.rev("T002");
+    let cases: &[&[&str]] = &[
+        // a plied record, and a source without scan_commitments
+        &["scanned", "T002", "--rev", &t002, "--on", "T001"],
+        &["scanned", "E001", "--rev", &e001, "--on", "T001"],
+        // a record that does not exist, and somewhere that is not a thread
+        &["scanned", "N999", "--rev", &rev, "--on", "T001"],
+    ];
+    for c in cases {
+        let mut args = c.to_vec();
+        let expect = p.rev("T001");
+        args.extend(["--because", "x", "--expect", &expect]);
+        assert_eq!(p.code(&args), Some(1), "{c:?}");
+    }
+    p.ok(&["new", "commitment", "--title", "Review first", "wording=Not scanned.", "made=E001"]);
+    let p01 = p.rev("P01");
+    assert_eq!(p.code(&["scanned", "N001", "--rev", &rev, "--on", "P01", "--because", "x", "--expect", &p01]), Some(1));
+    // --rev is a revision
+    assert_eq!(p.code(&["scanned", "N001", "--rev", "abc", "--on", "T001", "--because", "x", "--expect", &p.rev("T001")]), Some(2));
+    assert!(scan_warned(&p));
+}
+
+#[test]
+fn a_scan_review_by_hand_is_checked() {
+    let p = scanned_note();
+    let rev = p.rev("N001");
+    let item = |record: &str, rev: &str| format!("status: open\nscanned:\n  - record: {record}\n    rev: {rev}\n    by: bob\n");
+    let at = "plied/threads/T001-first.md";
+    let has = |p: &Proj, code: &str, subject: &str| diagnostics(p).iter().any(|(l, c, w, s)| l == "error" && c == code && w == at && s == subject);
+
+    p.edit(at, "status: open", &item("N001", &rev[..12]));
+    assert!(!scan_warned(&p) && !diagnostics(&p).iter().any(|(l, ..)| l == "error"), "{:?}", diagnostics(&p));
+
+    p.edit(at, &format!("rev: {}", &rev[..12]), "rev: ABCDEF12");
+    assert!(has(&p, "field", "scanned[0].rev"), "{:?}", diagnostics(&p));
+    assert!(scan_warned(&p), "an invalid revision covers nothing");
+
+    p.edit(at, "record: N001\n    rev: ABCDEF12", &format!("record: N999\n    rev: {rev}"));
+    assert!(has(&p, "ref", "scanned:N999"), "{:?}", diagnostics(&p));
+    p.edit(at, "record: N999", "record: T002");
+    assert!(has(&p, "ref", "scanned:T002"), "{:?}", diagnostics(&p));
+    p.edit(at, "  - record: T002\n", "  - ");
+    assert!(has(&p, "field", "scanned[0].record"), "{:?}", diagnostics(&p));
+    p.edit(at, "    by: bob", "    by: bob\n    reason: typo");
+    assert!(has(&p, "field", "scanned.reason"), "{:?}", diagnostics(&p));
+}
