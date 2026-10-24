@@ -1,0 +1,29 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+# The PyPI package ships the plied binary; name, version, description and
+# license come from Cargo.toml.
+[project]
+name = "plied"
+requires-python = ">=3.8"
+readme = "README.md"
+keywords = ["agents", "multi-agent", "provenance", "git", "literature"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Version Control :: Git",
+]
+dynamic = ["version", "description", "license", "authors"]
+
+[project.urls]
+Homepage = "https://github.com/jupsh/plied"
+Repository = "https://github.com/jupsh/plied"
+Changelog = "https://github.com/jupsh/plied/blob/main/CHANGELOG.md"
+
+[tool.maturin]
+bindings = "bin"
+strip = true

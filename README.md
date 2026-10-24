@@ -41,11 +41,14 @@ T001  M1: the reference species reproduces food sharing     open
 ## Install
 
 ```
-cargo install --path .            # from a checkout; or `cargo install plied` when published
-cargo install --path . --features pdf   # adds PDF page text and page images (pdfium)
+pipx install plied                # or `uv tool install plied`; prebuilt binary, no Rust needed
+cargo install plied               # from crates.io
+cargo install plied --features pdf   # adds PDF page text and page images (pdfium)
 ```
 
-You need git. Building from source needs a Rust toolchain (1.89 or newer).
+You need git. The PyPI wheels are built without the `pdf` feature; for
+`plied lit extract`, install with cargo. Building from source needs a Rust
+toolchain (1.89 or newer).
 To run it once without installing: `cargo run -- …` in a checkout.
 
 ## Quick start
