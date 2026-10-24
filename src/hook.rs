@@ -18,7 +18,7 @@ pub fn claude(stdin_text: &str, debug: bool) -> Option<String> {
         Ok(out) => out,
         Err(e) => {
             if debug {
-                eprintln!("plied hook: {e}");
+                crate::errln!("plied hook: {e}");
             }
             None
         }
@@ -111,7 +111,7 @@ pub fn main_claude(debug: bool) -> i32 {
     let mut text = String::new();
     let _ = std::io::stdin().read_to_string(&mut text);
     if let Some(out) = claude(&text, debug) {
-        println!("{out}");
+        crate::outln!("{out}");
     }
     0
 }

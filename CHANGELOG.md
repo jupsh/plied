@@ -4,6 +4,13 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- **A closed stdout no longer panics.** `plied list | head -1` used to print
+  a panic and exit 101 when the reader went away first. Now plied stops
+  writing and exits with the code the command earned, so an accepted write
+  still exits 0 (FORMAT.md §11, *Streams*). ([#2](https://github.com/jupsh/plied/issues/2))
+
 ## 0.1.0 — 2026-10-24
 
 The first release. Record format 1, JSON envelope version 1.

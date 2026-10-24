@@ -605,6 +605,12 @@ and its wording is not part of this contract. With `--json` (§11.1), stdout
 holds exactly one JSON document and stderr stays empty. `plied hook` is the
 exception: it speaks its agent's hook protocol.
 
+The exit code reports what the command did, never whether its output was
+read. When stdout is a pipe whose reader has gone (`plied list | head -1`),
+plied stops writing to it and exits as it would have otherwise, so an accepted
+write still exits 0. Any other failure to write stdout is said on stderr, and
+also leaves the exit code alone.
+
 **Assignments** (`plied new … key=value`, `plied set`). The operator is at an
 assignment's first `=`. `key=value` sets the field, and `key=` removes it.
 `key+=item` adds items that a list does not already have. `key-=item` removes

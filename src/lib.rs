@@ -15,6 +15,7 @@ pub mod hook;
 pub mod index;
 pub mod messages;
 pub mod notes;
+pub mod out;
 pub mod pdf;
 pub mod query;
 pub mod records;

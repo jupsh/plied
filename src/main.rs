@@ -20,7 +20,7 @@ use plied::repo::Repo;
 use plied::review;
 use plied::views;
 use plied::writer::{Who, Writer, apply_assignments};
-use plied::{gitguard, hook, index, query, repo};
+use plied::{errln, gitguard, hook, index, outln, query, repo};
 
 #[derive(Parser)]
 #[command(name = "plied", version = plied::VERSION, about = "A git-tracked work record for teams of agents and people.")]
@@ -426,7 +426,7 @@ fn real_main() -> i32 {
                 e.exit();
             }
             let f = Fail::code(EXIT_USAGE, e.render().to_string().trim().to_string());
-            println!("{}", serde_json::to_string_pretty(&envelope(EXIT_USAGE, Some(&f))).unwrap_or_default());
+            outln!("{}", serde_json::to_string_pretty(&envelope(EXIT_USAGE, Some(&f))).unwrap_or_default());
             return EXIT_USAGE;
         }
     };
@@ -436,13 +436,13 @@ fn real_main() -> i32 {
             Ok(code) => (code, None),
             Err(e) => (e.code, Some(e)),
         };
-        println!("{}", serde_json::to_string_pretty(&envelope(code, err.as_ref())).unwrap_or_default());
+        outln!("{}", serde_json::to_string_pretty(&envelope(code, err.as_ref())).unwrap_or_default());
         return code;
     }
     match run(&cli) {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("plied: {}", e.msg);
+            errln!("plied: {}", e.msg);
             e.code
         }
     }
@@ -487,7 +487,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             if json {
                 out_json(&json!({"id": rid, "rev": rev}));
             } else {
-                println!("created {rid} (rev {})", &rev[..12.min(rev.len())]);
+                outln!("created {rid} (rev {})", &rev[..12.min(rev.len())]);
             }
             Ok(0)
         }
@@ -524,7 +524,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             } else {
                 for (i, h) in &out {
                     let t = st.get(i);
-                    println!("{i:6} {:22} {}", h.join(", "), t.map(|r| doc::take(&r.title(), 90).to_string()).unwrap_or_default());
+                    outln!("{i:6} {:22} {}", h.join(", "), t.map(|r| doc::take(&r.title(), 90).to_string()).unwrap_or_default());
                 }
             }
             Ok(0)
@@ -540,7 +540,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             if json {
                 out_json(&views::tree_json(&st, id.as_deref()));
             } else {
-                println!("{}", views::tree_lines(&st, id.as_deref()).join("\n"));
+                outln!("{}", views::tree_lines(&st, id.as_deref()).join("\n"));
             }
             Ok(0)
         }
@@ -553,7 +553,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             if json {
                 out_json(&json!({"removed": n}));
             } else {
-                println!("removed {n} cached revision(s)");
+                outln!("removed {n} cached revision(s)");
             }
             Ok(0)
         }
@@ -566,7 +566,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             if json {
                 out_json(&c.to_json());
             } else {
-                println!("{} is on {node} until {} UTC (renewed by the hook, or claim again)", who.agent, c.expires().format("%Y-%m-%d %H:%M"));
+                outln!("{} is on {node} until {} UTC (renewed by the hook, or claim again)", who.agent, c.expires().format("%Y-%m-%d %H:%M"));
             }
             Ok(0)
         }
@@ -576,7 +576,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             if json {
                 out_json(&json!({"released": n}));
             } else {
-                println!("released {n} claim(s)");
+                outln!("released {n} claim(s)");
             }
             Ok(0)
         }
@@ -595,10 +595,10 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             } else {
                 for c in &cs {
                     let s = c.session.as_ref().map(|s| format!(" session {}", doc::take(s, 8))).unwrap_or_default();
-                    println!("{:6} {}{s}, since {}, lease until {} UTC", c.node, c.agent, c.since, c.expires().format("%H:%M"));
+                    outln!("{:6} {}{s}, since {}, lease until {} UTC", c.node, c.agent, c.since, c.expires().format("%H:%M"));
                 }
                 if cs.is_empty() {
-                    println!("nobody has a live claim");
+                    outln!("nobody has a live claim");
                 }
             }
             Ok(0)
@@ -616,7 +616,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
                 let status = if fresh { "sent" } else { "already recorded (retry with the same id)" };
                 let to_s = e.get("to").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default();
                 let eid = e.get("id").and_then(Value::as_str).unwrap_or_default();
-                println!("{status}: {eid} on {node} to {}", if to_s.is_empty() { "nobody (no live claims or subscribers)".into() } else { to_s });
+                outln!("{status}: {eid} on {node} to {}", if to_s.is_empty() { "nobody (no live claims or subscribers)".into() } else { to_s });
             }
             Ok(0)
         }
@@ -632,7 +632,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             if json {
                 out_json(&json!({"acknowledged": n}));
             } else {
-                println!("acknowledged {n} message(s) (receipt only, not approval)");
+                outln!("acknowledged {n} message(s) (receipt only, not approval)");
             }
             Ok(0)
         }
@@ -646,7 +646,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             if json {
                 out_json(&json!({"records": docs.len() - pages, "pages": pages, "policy": ix["policy"]}));
             } else {
-                println!(
+                outln!(
                     "indexed {} records and {pages} paper pages (policy {})",
                     docs.len() - pages,
                     doc::take(ix["policy"].as_str().unwrap_or_default(), 12)
@@ -667,7 +667,7 @@ fn print_updated(id: &str, rev: &str, json: bool, verb: &str) {
     if json {
         out_json(&json!({"id": id, "rev": rev}));
     } else {
-        println!("{id} {verb} (rev {})", &rev[..12.min(rev.len())]);
+        outln!("{id} {verb} (rev {})", &rev[..12.min(rev.len())]);
     }
 }
 
@@ -687,7 +687,7 @@ fn subscribe(ctx: &Ctx, node: &str, who_args: &WhoArgs, on: bool, json: bool) ->
     if json {
         out_json(&json!({"event": m}));
     } else {
-        println!("{} {} {node}", who.agent, if on { "subscribed to" } else { "unsubscribed from" });
+        outln!("{} {} {node}", who.agent, if on { "subscribed to" } else { "unsubscribed from" });
     }
     Ok(0)
 }
@@ -707,7 +707,7 @@ fn cmd_init(cli: &Cli) -> Res<i32> {
     if cli.json {
         out_json(&json!({"path": p.display().to_string()}));
     } else {
-        println!("wrote {}", p.display());
+        outln!("wrote {}", p.display());
     }
     // outside git, keep the runtime directory out of version control
     let gi = base.join(".gitignore");
@@ -749,7 +749,7 @@ fn cmd_guard(cli: &Cli, guard_cmd: &GuardCmd) -> Res<i32> {
                 out_json(&json!({"installed": lines}));
             } else {
                 for line in &lines {
-                    println!("{line}");
+                    outln!("{line}");
                 }
             }
             return Ok(0);
@@ -763,10 +763,10 @@ fn cmd_guard(cli: &Cli, guard_cmd: &GuardCmd) -> Res<i32> {
         out_json(&json!({"problems": problems}));
     } else {
         for p in &problems {
-            eprintln!("plied guard: {p}");
+            errln!("plied guard: {p}");
         }
         if !problems.is_empty() {
-            eprintln!("plied guard: record files change only through `plied` in the canonical checkout. (Passing this guard never authorises a commit.)");
+            errln!("plied guard: record files change only through `plied` in the canonical checkout. (Passing this guard never authorises a commit.)");
         }
     }
     Ok(if problems.is_empty() { 0 } else { plied::error::EXIT_BLOCKED })
@@ -808,7 +808,7 @@ fn cmd_show(ctx: &Ctx, id: &str, json: bool) -> Res<i32> {
         out_json(&Value::Object(o));
         return Ok(0);
     }
-    println!("{}", record_text(ctx, &st, r)?);
+    outln!("{}", record_text(ctx, &st, r)?);
     Ok(0)
 }
 
@@ -878,7 +878,7 @@ fn cmd_list(ctx: &Ctx, kind: Option<&str>, state: Option<&str>, json: bool) -> R
         ));
     } else {
         for r in rows {
-            println!("{:6} {:13} {}", r.id, r.state_str().unwrap_or_default(), r.title());
+            outln!("{:6} {:13} {}", r.id, r.state_str().unwrap_or_default(), r.title());
         }
     }
     Ok(0)
@@ -909,7 +909,7 @@ fn cmd_find(ctx: &Ctx, q_text: &str, json: bool) -> Res<i32> {
         ));
     } else {
         for r in hits {
-            println!("{:6} {:11} {:12} {}", r.id, r.kind.name(), r.state_str().unwrap_or_default(), doc::take(&r.title(), 110));
+            outln!("{:6} {:11} {:12} {}", r.id, r.kind.name(), r.state_str().unwrap_or_default(), doc::take(&r.title(), 110));
         }
     }
     Ok(0)
@@ -937,22 +937,22 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, json: bool) -> Res<i32> {
         return Ok(0);
     }
     for (actor_name, rs) in &fr {
-        println!("{actor_name}:");
+        outln!("{actor_name}:");
         for r in rs {
             let n = r.meta.get("next").map(Node::to_string).unwrap_or_default();
-            println!("  {n}. {} {}", r.id, r.title());
+            outln!("  {n}. {} {}", r.id, r.title());
         }
     }
     if !qs.is_empty() && actor.is_none() {
-        println!("open questions:");
+        outln!("open questions:");
         for q in qs {
-            println!("  {} {}", q.id, q.title());
+            outln!("  {} {}", q.id, q.title());
         }
     }
     if !dates.is_empty() && actor.is_none() {
-        println!("dates:");
+        outln!("dates:");
         for (r, f, d, passed) in &dates {
-            println!("  {d} {} {f}{}  {}", r.id, if *passed { " (now)" } else { "" }, r.title());
+            outln!("  {d} {} {f}{}  {}", r.id, if *passed { " (now)" } else { "" }, r.title());
         }
     }
     Ok(0)
@@ -966,7 +966,7 @@ fn cmd_view(ctx: &Ctx, check_flag: bool, print_flag: bool, json: bool) -> Res<i3
         if json {
             out_json(&json!({"path": path, "text": text}));
         } else {
-            println!("{text}");
+            outln!("{text}");
         }
         return Ok(0);
     }
@@ -987,7 +987,7 @@ fn cmd_view(ctx: &Ctx, check_flag: bool, print_flag: bool, json: bool) -> Res<i3
     if json {
         out_json(&json!({"path": path}));
     } else {
-        println!("wrote {path}");
+        outln!("wrote {path}");
     }
     Ok(0)
 }
@@ -1002,8 +1002,8 @@ fn cmd_recover(ctx: &Ctx, json: bool) -> Res<i32> {
         return Ok(0);
     }
     match r {
-        Some(r) => println!("{r}"),
-        None => println!("nothing to recover"),
+        Some(r) => outln!("{r}"),
+        None => outln!("nothing to recover"),
     }
     Ok(0)
 }
@@ -1049,9 +1049,9 @@ fn cmd_check(ctx: &Ctx, errors_only: bool, json: bool) -> Res<i32> {
         }));
     } else {
         for p in &probs {
-            println!("{p}");
+            outln!("{p}");
         }
-        println!(
+        outln!(
             "plied {}, config {}: {} records, {} linked; {errs} error(s), {} warning(s)",
             plied::VERSION,
             doc::take(&ctx.repo.cfg.digest(), 12),
@@ -1083,7 +1083,7 @@ fn cmd_inbox(ctx: &Ctx, all: bool, peek: bool, json: bool, who_args: &WhoArgs) -
         return Ok(0);
     }
     if items.is_empty() {
-        println!("inbox empty");
+        outln!("inbox empty");
     }
     for e in &items {
         let g = |k: &str| e.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
@@ -1095,7 +1095,7 @@ fn cmd_inbox(ctx: &Ctx, all: bool, peek: bool, json: bool, who_args: &WhoArgs) -
             "new"
         };
         let reply = e.get("reply_to").and_then(Value::as_str).filter(|s| !s.is_empty()).map(|r| format!(", reply to {r}")).unwrap_or_default();
-        println!("[{}] {} from {} at {} ({flags}{reply})\n  {}", g("id"), g("node"), g("from"), g("at"), g("text").replace('\n', "\n  "));
+        outln!("[{}] {} from {} at {} ({flags}{reply})\n  {}", g("id"), g("node"), g("from"), g("at"), g("text").replace('\n', "\n  "));
     }
     Ok(0)
 }
@@ -1121,15 +1121,15 @@ fn cmd_messages(ctx: &Ctx, node: &str, json: bool) -> Res<i32> {
         if t == "message" {
             let reply = e.get("reply_to").and_then(Value::as_str).filter(|s| !s.is_empty()).map(|r| format!(" ↳ {r}")).unwrap_or_default();
             let to = e.get("to").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-            println!("[{}]{reply} {} → {} at {}\n  {}", g("id"), g("from"), if to.is_empty() { "—".into() } else { to }, g("at"), g("text").replace('\n', "\n  "));
+            outln!("[{}]{reply} {} → {} at {}\n  {}", g("id"), g("from"), if to.is_empty() { "—".into() } else { to }, g("at"), g("text").replace('\n', "\n  "));
             if let Some(mk) = marks.get(&g("id")) {
                 let mut u = mk.clone();
                 u.sort();
                 u.dedup();
-                println!("  ({})", u.join("; "));
+                outln!("  ({})", u.join("; "));
             }
         } else if t == "subscribe" || t == "unsubscribe" {
-            println!("  {} {}d at {}", g("agent"), t, g("at"));
+            outln!("  {} {}d at {}", g("agent"), t, g("at"));
         }
     }
     Ok(0)
@@ -1145,7 +1145,7 @@ fn cmd_lit(ctx: &Ctx, lit_cmd: &LitCmd, json: bool) -> Res<i32> {
             }
             for p in lib.papers.values() {
                 let pages = lib.pages(p);
-                println!("{:28} {:3} pages  {}", p.id, pages.len(), p.file);
+                outln!("{:28} {:3} pages  {}", p.id, pages.len(), p.file);
             }
             Ok(0)
         }
@@ -1156,7 +1156,7 @@ fn cmd_lit(ctx: &Ctx, lit_cmd: &LitCmd, json: bool) -> Res<i32> {
                 if json {
                     out_json(&json!({"paper": paper, "page": page, "image": img.display().to_string()}));
                 } else {
-                    println!("{}", img.display());
+                    outln!("{}", img.display());
                 }
                 return Ok(0);
             }
@@ -1169,9 +1169,9 @@ fn cmd_lit(ctx: &Ctx, lit_cmd: &LitCmd, json: bool) -> Res<i32> {
                         return Ok(0);
                     }
                     if ocr {
-                        eprintln!("[this page's text is OCR: read numbers, tables and figures from the page image]\n");
+                        errln!("[this page's text is OCR: read numbers, tables and figures from the page image]\n");
                     }
-                    println!("{text}");
+                    outln!("{text}");
                     Ok(0)
                 }
             }
@@ -1181,7 +1181,7 @@ fn cmd_lit(ctx: &Ctx, lit_cmd: &LitCmd, json: bool) -> Res<i32> {
             if json {
                 out_json(&json!({"paper": paper, "pages": n}));
             } else {
-                println!("extracted {n} pages");
+                outln!("extracted {n} pages");
             }
             Ok(0)
         }
@@ -1232,10 +1232,10 @@ fn lit_cites(ctx: &Ctx, lib: &Library, pid: &str, json: bool) -> Res<i32> {
         return Ok(0);
     }
     for (i, how, t) in &rows {
-        println!("{i:6} {how:18} {}", doc::take(t, 90));
+        outln!("{i:6} {how:18} {}", doc::take(t, 90));
     }
     if rows.is_empty() {
-        println!("nothing cites {pid}");
+        outln!("nothing cites {pid}");
     }
     Ok(0)
 }
@@ -1258,10 +1258,10 @@ fn lit_check(ctx: &Ctx, lib: &Library, json: bool) -> Res<i32> {
                 continue;
             }
             let line = checks.iter().map(|ch| format!("{}:{}", ch.aspect, ch.status)).collect::<Vec<_>>().join("  ");
-            println!("{:6} {} p{}: {line}", r.id, doc::text(c, "paper").unwrap_or_default(), c.get("page").map(Node::to_string).unwrap_or_default());
+            outln!("{:6} {} p{}: {line}", r.id, doc::text(c, "paper").unwrap_or_default(), c.get("page").map(Node::to_string).unwrap_or_default());
             for ch in &checks {
                 if matches!(ch.status, Status::Fail | Status::Warn) {
-                    println!("         {}: {}", ch.aspect, ch.message);
+                    outln!("         {}: {}", ch.aspect, ch.message);
                 }
             }
         }
@@ -1271,7 +1271,7 @@ fn lit_check(ctx: &Ctx, lib: &Library, json: bool) -> Res<i32> {
         out_json(&json!({"citations": all, "manifest": lib.problems, "failed": bad}));
     } else {
         for msg in &lib.problems {
-            println!("manifest: {msg}");
+            outln!("manifest: {msg}");
         }
     }
     Ok(if bad > 0 { EXIT_ERROR } else { 0 })
@@ -1288,10 +1288,10 @@ fn cmd_search(ctx: &Ctx, query_text: &str, n: usize, kind: Option<&str>, paper: 
     } else {
         for h in &hits {
             let flags = format!("{}{}", if h.stale { " [changed since indexed]" } else { "" }, if h.ocr { " [OCR: check the page image]" } else { "" });
-            println!("{}  ({:.1}){flags}\n  {}\n", h.key, h.score, h.snippet);
+            outln!("{}  ({:.1}){flags}\n  {}\n", h.key, h.score, h.snippet);
         }
         if hits.is_empty() {
-            println!("no matches");
+            outln!("no matches");
         }
     }
     for n in notes {
@@ -1335,18 +1335,18 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
         out_json(&json!({"commitments": commitments, "gate": gate_v}));
     } else {
         if items.is_empty() {
-            println!("no open commitment applies to {}", nodes.join(", "));
+            outln!("no open commitment applies to {}", nodes.join(", "));
         }
         for x in &items {
             let c = x.commitment;
-            println!("{} [{}] rev {}  {}", c.id, c.state_str().unwrap_or_default(), &c.rev[..12.min(c.rev.len())], c.title());
-            println!("  applies via: {}", x.chains.join("; "));
-            println!("  wording ({}): “{}”", doc::text(&c.meta, "made").unwrap_or_default(), doc::text(&c.meta, "wording").unwrap_or_default());
+            outln!("{} [{}] rev {}  {}", c.id, c.state_str().unwrap_or_default(), &c.rev[..12.min(c.rev.len())], c.title());
+            outln!("  applies via: {}", x.chains.join("; "));
+            outln!("  wording ({}): “{}”", doc::text(&c.meta, "made").unwrap_or_default(), doc::text(&c.meta, "wording").unwrap_or_default());
             if let Some(t) = doc::text(&c.meta, "trigger") {
-                println!("  trigger: {t}");
+                outln!("  trigger: {t}");
             }
             for rv in &x.reviews {
-                println!(
+                outln!(
                     "  disposition for {}: {} — {} ({}, {})",
                     doc::text(rv, "action").unwrap_or_default(),
                     doc::text(rv, "disposition").unwrap_or_default(),
@@ -1358,15 +1358,15 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
             if x.reviews.is_empty()
                 && let Some(a) = action
             {
-                println!("  → record: plied dispose {} --action {} --disposition … --because \"…\" --expect {}", c.id, serde_json::to_string(a).unwrap_or_default(), &c.rev[..12.min(c.rev.len())]);
+                outln!("  → record: plied dispose {} --action {} --disposition … --because \"…\" --expect {}", c.id, serde_json::to_string(a).unwrap_or_default(), &c.rev[..12.min(c.rev.len())]);
             }
-            println!();
+            outln!();
         }
     }
     if let Some(reasons) = reasons {
         if !json {
             for r in &reasons {
-                eprintln!("gate: {r}");
+                errln!("gate: {r}");
             }
         }
         return Ok(if reasons.is_empty() { 0 } else { EXIT_GATE });
@@ -1406,7 +1406,7 @@ fn cmd_dispose(ctx: &Ctx, id: &str, action: &str, disposition: &str, because: &s
     if json {
         out_json(&json!({"id": id, "rev": rev}));
     } else {
-        println!("{id}: disposition recorded (rev {})", &rev[..12.min(rev.len())]);
+        outln!("{id}: disposition recorded (rev {})", &rev[..12.min(rev.len())]);
     }
     Ok(0)
 }

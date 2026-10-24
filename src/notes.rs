@@ -19,7 +19,7 @@ pub fn note(msg: impl Into<String>) {
     if COLLECT.get() {
         NOTES.with_borrow_mut(|n| n.push(msg));
     } else {
-        eprintln!("plied: {msg}");
+        crate::errln!("plied: {msg}");
     }
 }
 
