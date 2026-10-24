@@ -248,6 +248,24 @@ enum Cmd {
         #[command(flatten)]
         who: WhoArgs,
     },
+    /// record on a thread that a scanned linked record holds no commitment to record
+    Scanned {
+        /// the linked record you read
+        id: String,
+        /// its revision, as you read it (from `plied show`)
+        #[arg(long, value_name = "REV")]
+        rev: String,
+        /// the thread that keeps the review
+        #[arg(long, value_name = "THREAD")]
+        on: String,
+        #[arg(long)]
+        because: String,
+        /// the thread's revision you read
+        #[arg(long, value_name = "REV")]
+        expect: String,
+        #[command(flatten)]
+        who: WhoArgs,
+    },
     /// git guards for record files
     Guard {
         #[command(subcommand)]
@@ -659,6 +677,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
         Cmd::Dispose { id, action, disposition, because, ref_, expect, who } => {
             cmd_dispose(ctx, id, action, disposition, because, ref_.as_deref(), expect, who, json)
         }
+        Cmd::Scanned { id, rev, on, because, expect, who } => cmd_scanned(ctx, id, rev, on, because, expect, who, json),
         _ => unreachable!(),
     }
 }
@@ -780,7 +799,8 @@ fn backlinks(st: &Store, rid: &str) -> Vec<(String, Vec<String>)> {
             continue;
         }
         let mut hows: Vec<String> = if r.is_own() {
-            r.refs().into_iter().filter(|(_, x)| x == rid).map(|(f, _)| f.to_string()).collect()
+            let scanned = r.scanned().into_iter().filter(|(x, _)| x == rid).map(|_| "scanned".to_string());
+            r.refs().into_iter().filter(|(_, x)| x == rid).map(|(f, _)| f.to_string()).chain(scanned).collect()
         } else {
             vec![]
         };
@@ -1407,6 +1427,53 @@ fn cmd_dispose(ctx: &Ctx, id: &str, action: &str, disposition: &str, because: &s
         out_json(&json!({"id": id, "rev": rev}));
     } else {
         outln!("{id}: disposition recorded (rev {})", &rev[..12.min(rev.len())]);
+    }
+    Ok(0)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_scanned(ctx: &Ctx, id: &str, rev: &str, on: &str, because: &str, expect: &str, who_args: &WhoArgs, json: bool) -> Res<i32> {
+    let rev = rev.to_ascii_lowercase();
+    if !plied::records::is_rev(&rev) {
+        return Err(Fail::code(EXIT_USAGE, "--rev needs the revision you read (at least 8 hex characters; `plied show` prints it)"));
+    }
+    let st = ctx.store()?;
+    let r = st.get(id).ok_or_else(|| Fail::new(format!("no record {id}")))?;
+    let Some(src) = r.source() else {
+        return Err(Fail::new(format!("{} is a plied record; only linked records are scanned for commitments", r.id)));
+    };
+    if !src.scan_commitments {
+        return Err(Fail::new(format!("{} is a {} record, and that source does not set scan_commitments", r.id, src.name)));
+    }
+    // a review covers what was read: a record that moved on since must be read again
+    if !r.rev.starts_with(&rev) {
+        let msg = format!("{} changed since you read it (expected {}, now {}); read it again", r.id, doc::take(&rev, 12), &r.rev[..12]);
+        return Err(Fail::code(plied::error::EXIT_CONFLICT, msg).with_detail(json!({"id": r.id, "expected": rev, "current": r.rev})));
+    }
+    if !st.get(on).is_some_and(|t| t.is(OwnKind::Thread)) {
+        return Err(Fail::new(format!("{on} is not a thread")));
+    }
+    let who = who_of(who_args, true)?;
+    let who_s = who.to_string();
+    let (rid, full_rev, because_s) = (r.id.clone(), r.rev.clone(), because.to_string());
+    let mut mutate = |meta: &mut Map| -> Res<String> {
+        let mut entry = Map::new();
+        entry.insert("record".into(), Node::Str(rid.clone()));
+        entry.insert("rev".into(), Node::Str(full_rev.clone()));
+        entry.insert("at".into(), Node::Str(plied::records::stamp()));
+        entry.insert("by".into(), Node::Str(who_s.clone()));
+        entry.insert("because".into(), Node::Str(because_s.clone()));
+        let mut scanned: Vec<Node> = meta.get("scanned").map(|v| v.items().to_vec()).unwrap_or_default();
+        scanned.push(Node::Map(entry));
+        meta.insert("scanned".into(), Node::List(scanned));
+        Ok(format!("scanned {rid} (rev {}): no commitment to record", &full_rev[..12]))
+    };
+    let lib = ctx.library_opt()?;
+    let new_rev = ctx.writer().update(&ctx.policy, lib.as_ref(), on, expect, &who, Some(because), &[], None, None, Some(&mut mutate))?;
+    if json {
+        out_json(&json!({"id": on, "rev": new_rev}));
+    } else {
+        outln!("{on}: scan of {} recorded (rev {})", r.id, &new_rev[..12.min(new_rev.len())]);
     }
     Ok(0)
 }

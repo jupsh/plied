@@ -6,6 +6,13 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- **Scan reviews.** `plied scanned D001 --rev … --on T004 --because …`
+  records on a thread that a `scan_commitments` record was read and holds no
+  commitment to record. Its `commitment?` warning goes quiet until the record
+  changes. The new thread field `scanned` keeps who, when, why and the
+  revision read (FORMAT.md §3.3, §8). plied 0.1.0 reports it as an unknown
+  field, so a store that uses it should set `requires = ">=0.2.0"`.
+  ([#3](https://github.com/jupsh/plied/issues/3))
 - **A closed stdout no longer panics.** `plied list | head -1` used to print
   a panic and exit 101 when the reader went away first. Now plied stops
   writing and exits with the code the command earned, so an accepted write
