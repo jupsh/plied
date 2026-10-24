@@ -189,3 +189,39 @@ fn check_reports_broken_records_and_literature() {
     assert!(p2.run(&["lit", "check"]).status.success(), "{}", text(&p2.run(&["lit", "check"])));
     assert!(p2.run(&["check"]).status.success(), "{}", text(&p2.run(&["check"])));
 }
+
+/// Run plied with stdout a pipe whose reader goes away before reading anything.
+fn with_stdout_closed(p: &Proj, args: &[&str]) -> std::process::Output {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(bin())
+        .arg("-C")
+        .arg(p.path())
+        .args(args)
+        .env("PLIED_AGENT", "alice")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn a_closed_stdout_ends_the_output_not_the_command() {
+    let p = Proj::new();
+    // more output than a pipe buffers, so plied is still writing when the reader has gone
+    let body = p.path().join("body.md");
+    std::fs::write(&body, "A long line of body text.\n".repeat(20_000)).unwrap();
+    p.ok(&["new", "thread", "--title", "Long", "--body", body.to_str().unwrap()]);
+    for args in [&["show", "T001"][..], &["show", "T001", "--json"]] {
+        let out = with_stdout_closed(&p, args);
+        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", text(&out));
+        assert!(out.stderr.is_empty(), "{args:?}: {}", text(&out));
+    }
+    // the exit code still reports the command's outcome: a failure stays a failure...
+    assert_eq!(with_stdout_closed(&p, &["show", "T999", "--json"]).status.code(), Some(1));
+    // ...and an accepted write is never reported as failed because nobody read its result
+    let out = with_stdout_closed(&p, &["new", "thread", "--title", "Second"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out));
+    assert!(p.ok(&["list"]).contains("T002"));
+}
