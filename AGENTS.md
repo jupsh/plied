@@ -26,5 +26,5 @@ Things that aren't obvious from the code:
   `cargo clippy --all-targets --features pdf -- -D warnings`.
 - **Releasing:** bump `version` in Cargo.toml, date the CHANGELOG section,
   merge, then push tag `vX.Y.Z` on main. The tag must equal the Cargo.toml
-  version. `.github/workflows/release.yml` builds the wheels and publishes to
-  PyPI, which can't be undone.
+  version. `.github/workflows/release.yml` publishes the wheels to PyPI and
+  the crate to crates.io. Neither can be undone.
