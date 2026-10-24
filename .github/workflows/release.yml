@@ -1,7 +1,7 @@
 name: release
-# Builds the plied binary into wheels and publishes them to PyPI through
-# trusted publishing. Runs on a version tag, or by hand from a branch whose
-# Cargo.toml version is not on PyPI yet.
+# Builds the plied binary into wheels and publishes them to PyPI, and the
+# crate to crates.io, both through trusted publishing. Runs on a version tag,
+# or by hand from a branch; a version already published is skipped.
 on:
   push:
     tags: ["v*"]
@@ -73,3 +73,29 @@ jobs:
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+  crate:
+    # after every build passed, so a broken release publishes nowhere
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: published
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          status=$(curl -s -o /dev/null -w '%{http_code}' -A 'plied release (github.com/jupsh/plied)' "https://crates.io/api/v1/crates/plied/$version")
+          echo "already=$([ "$status" = 200 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - if: steps.published.outputs.already == 'false'
+        uses: dtolnay/rust-toolchain@stable
+      - if: steps.published.outputs.already == 'false'
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - if: steps.published.outputs.already == 'false'
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
