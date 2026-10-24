@@ -4,7 +4,7 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
-## Unreleased
+## 0.2.0 — 2026-10-24
 
 - **Scan reviews.** `plied scanned D001 --rev … --on T004 --because …`
   records on a thread that a `scan_commitments` record was read and holds no
