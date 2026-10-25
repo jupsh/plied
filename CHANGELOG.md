@@ -4,7 +4,7 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
-## Unreleased
+## 0.6.0 — 2026-10-25
 
 - **The skill covers hand-offs that never happen, and small runs.** Work
   parked outside the record is noted on the node when it is parked, since a
