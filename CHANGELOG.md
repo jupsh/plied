@@ -6,6 +6,20 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- **An apostrophe no longer swallows the rest of a flow list.** A quote in
+  the middle of an item (`[a, it's b, c]`) opened a quoted span that ran on
+  to the next quote or the list's end, so the list was read as `a` and
+  `it's b, c`, on assignment and when reading a file, with no error. Now, as
+  in YAML, a quote opens a quoted item only at the item's start (FORMAT.md
+  §3.1). ([#10](https://github.com/jupsh/plied/issues/10))
+  - Lists that earlier plied *wrote* hold the merged item quoted
+    (`[a, "it's b, c"]`). That is what the file says, so it still reads as
+    two items: look for them with
+    `grep -rnE "^ *[a-z_]+: \[.*\"[^\"]*'[^\"]*,[^\"]*\"" plied/` and fix
+    them with `plied set`. Hand-written lists now read correctly.
+  - plied 0.3.0 and earlier misread the lists this version writes, and a
+    write by them would merge the items again. A store that upgrades should
+    set `requires = ">=0.4.0"`.
 - **The skill draws on a first session in a real store.** Stale-review
   notes now say what the entry touches and why the node is or is not
   affected, since "no change" notes become a rubber stamp. An id-shaped name
@@ -14,13 +28,11 @@ are versioned separately from plied itself; see
   action name per run. An answer heard in conversation counts only once a
   decision record holds it. Keeping `actor` and `next` current keeps the
   frontier true, and `plied view` need not be run after writes.
-
 - **`parent` no longer spreads staleness.** A linked record citing a group
   thread used to make every child stale as well, each needing its own
   review note. Now only the group goes stale, as `parent` is organisational
   and carries no obligations either (FORMAT.md §8, *Stale*, which now also
   defines what counts as a mention).
-
 - **The view no longer goes stale when a linked file changes.** It showed
   the state of each thread's `backlog` record, so editing that linked file
   made `plied view --check` fail although plied had written nothing. The view

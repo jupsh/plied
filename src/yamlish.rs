@@ -279,15 +279,17 @@ fn flow_list(value: &str, n: usize) -> R<Vec<Node>> {
     let (mut items, mut cur, mut i) = (vec![], String::new(), 0);
     while i < inner.len() {
         let c = inner[i];
+        // as in YAML, a quote opens a quoted item only at the item's start; elsewhere (`it's`) it is text
+        let at_start = cur.trim().is_empty();
         let end = match c {
-            '"' => {
+            '"' if at_start => {
                 let mut j = i + 1;
                 while j < inner.len() && inner[j] != '"' {
                     j += if inner[j] == '\\' { 2 } else { 1 };
                 }
                 Some(j)
             }
-            '\'' => {
+            '\'' if at_start => {
                 let mut j = i + 1;
                 while j < inner.len() && !(inner[j] == '\'' && inner.get(j + 1) != Some(&'\'')) {
                     j += if inner[j] == '\'' { 2 } else { 1 };
@@ -481,6 +483,7 @@ mod tests {
                 "tricky",
                 Node::List(["no", "yes", "1.10", "2026-10-24", "17:18", "-x", "#y", "@z", "a #b", "trailing:"].iter().map(|x| s(x)).collect()),
             )]),
+            m(&[("options", Node::List(vec![s("a"), s("it's b"), s("c"), s("the neighbours' J'"), s("say \"hi\" now"), s("'quoted', too")]))]),
             m(&[("multi", s("line one\nline two")), ("spaces", s("two  spaces")), ("quote", s("say \"hi\"")), ("unicode", s("≈ µL — “q”"))]),
         ]
     }
@@ -540,6 +543,18 @@ mod tests {
         let p = parse("a:\n- x\n- y\nb: z\n").unwrap();
         assert_eq!(p["a"], Node::List(vec![s("x"), s("y")]));
         assert_eq!(p["b"], s("z"));
+    }
+
+    #[test]
+    fn a_quote_inside_a_flow_item_is_text() {
+        let list = |t: &str| parse(t).unwrap_or_else(|e| panic!("{e}: {t}"))["a"].clone();
+        let strs = |xs: &[&str]| Node::List(xs.iter().map(|x| s(x)).collect());
+        assert_eq!(list("a: [a, it's b, c]\n"), strs(&["a", "it's b", "c"]));
+        assert_eq!(list("a: [x\"y, z]\n"), strs(&["x\"y", "z"]));
+        // at an item's start a quote still opens a quoted item, after any spaces
+        assert_eq!(list("a: [a,  'it''s, b', \"c, d\"]\n"), strs(&["a", "it's, b", "c, d"]));
+        // text after a closing quote is an error, never a silent join
+        assert!(parse("a: ['x' y, z]\n").is_err());
     }
 
     #[test]
