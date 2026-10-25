@@ -213,6 +213,10 @@ fn skill_is_generated_by_the_binary_outside_a_repo() {
         "plied scanned", // scan triage: record the negative finding
         "stale",       // a wide-citing entry makes linked nodes stale
         "note each",   // ... and each one gets its review noted
+        "rubber stamp", // ... saying what was seen, not only that it was looked at
+        "Never edit a linked record", // an id-shaped name is noted, not reworded away
+        "only the nodes you name",    // the gate sees nothing it is not given
+        "not yet an answer",          // an answer heard in chat still needs a record
         "plied review", // the command inventory is part of the text
         "plied dispose",
         "status=closed",  // closing sets the outcome in the same write
