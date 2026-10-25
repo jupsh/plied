@@ -362,6 +362,72 @@ fn notes_go_into_the_envelope() {
     assert!(v["notes"][0].as_str().unwrap().contains("before this command: undid an interrupted write"), "{v}");
 }
 
+#[test]
+fn expect_takes_a_revision_prefix_of_eight_or_more() {
+    let p = two_threads();
+    let rev = p.rev("T001");
+    assert_eq!(p.code(&["note", "T001", "short", "--expect", &rev[..7]]), Some(2), "too short to name a revision");
+    assert_eq!(p.code(&["note", "T001", "short", "--expect", &rev[..8]]), Some(0));
+    // the prefix `show` prints above the record is enough
+    let rev = p.rev("T001");
+    assert!(p.ok(&["show", "T001"]).contains(&format!("rev: {}", &rev[..12])));
+    assert_eq!(p.code(&["note", "T001", "shown", "--expect", &rev[..12]]), Some(0));
+}
+
+#[test]
+fn frontier_lists_open_threads_in_no_queue() {
+    let p = two_threads();
+    p.ok(&["new", "thread", "--title", "Third"]);
+    assert!(p.set("T001", &["actor=bob", "next=1"]).status.success());
+    assert!(p.set("T002", &["actor=bob"]).status.success());
+    let v = envelope(&p.run(&["frontier", "--json"]));
+    let ids = |v: &serde_json::Value| -> Vec<(String, serde_json::Value)> {
+        v["result"]["unscheduled"].as_array().unwrap().iter().map(|r| (r["id"].as_str().unwrap().to_string(), r["actor"].clone())).collect()
+    };
+    assert_eq!(ids(&v), [("T002".to_string(), serde_json::json!("bob")), ("T003".to_string(), serde_json::Value::Null)]);
+    // --actor narrows them to the threads that actor holds
+    let v = envelope(&p.run(&["frontier", "--actor", "bob", "--json"]));
+    assert_eq!(ids(&v), [("T002".to_string(), serde_json::json!("bob"))]);
+}
+
+// --------------------------------------------------------------------------- §8 stale
+
+#[test]
+fn a_record_about_a_group_makes_the_group_stale_not_its_children() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    p.ok(&["new", "thread", "--title", "Group", "status=group"]);
+    p.ok(&["new", "thread", "--title", "Child", "parent=T001"]);
+    p.ok(&["new", "thread", "--title", "User", "uses=T001"]);
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: news\ndate: 2999-01-01\n---\nT001 changes method.\n").unwrap();
+    let stale: Vec<String> = envelope(&p.run(&["check", "--json"]))["result"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["code"] == "stale")
+        .map(|d| d["where"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(stale.len(), 2, "{stale:?}");
+    assert!(stale[0].contains("T001-") && stale[1].contains("T003-"), "the group and its user, not the child by parent: {stale:?}");
+}
+
+// ------------------------------------------------------------------------ §7 the view
+
+#[test]
+fn the_view_does_not_depend_on_linked_records() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"backlog\"\nglob = \"backlog/*.md\"\nid = \"^B[0-9]{3}$\"\nstatus = \"status\"\n");
+    std::fs::create_dir_all(p.path().join("backlog")).unwrap();
+    std::fs::write(p.path().join("backlog/B001.md"), "---\nid: B001\ntitle: item\nstatus: open\n---\n").unwrap();
+    p.ok(&["new", "thread", "--title", "First", "backlog=B001"]);
+    p.edit("backlog/B001.md", "status: open", "status: done");
+    // no plied write happened, so the view a write generated must still be current
+    assert_eq!(p.code(&["view", "--check"]), Some(0), "{}", text(&p.run(&["view", "--check"])));
+    // `tree` reads the linked state live
+    assert!(p.ok(&["tree"]).contains("[B001: done]"));
+}
+
 // ------------------------------------------------------------------- §10 citation results
 
 #[test]

@@ -482,8 +482,12 @@ earlier in the same log; anything else is an error.
 
 `<root>/README.md` is generated from the records after every write. Its content
 is not part of this specification, except that it MUST be a deterministic
-function of the records, so `plied view --check` can tell whether it is
-current.
+function of plied's own records, so `plied view --check` can tell whether it is
+current. It MUST NOT depend on linked records (§4), which change without a
+plied write: a linked file edited by hand, or by the system it comes from,
+never makes the view out of date. It may name a linked record's id, but not
+show its state or other content. (Before 0.4.0, the view showed a `backlog`
+record's state.)
 
 ## 8. Checks
 
@@ -542,7 +546,7 @@ ever appended.
 **Warnings:** a linked id not matching its pattern; an approval whose authority
 cannot be verified; a waiting node whose `waiting_on` is all resolved; a
 commitment attached to nothing; a body mentioning ids that do not exist; a
-node older than a dated linked record that cites what it links; a scanned
+*stale* node (below); a scanned
 source record with a commitment phrase that no commitment links
 (code `commitment?`; `scan_commitments`, from `commitments_since`) and that
 no thread's `scanned` covers at its current revision; an unlinked record of a
@@ -550,6 +554,16 @@ no thread's `scanned` covers at its current revision; an unlinked record of a
 asks for attention (§3.3, code `date`); a review whose action has a kind not
 in `checks.action_kinds` (code `action`, a warning so that adopting a
 vocabulary never blocks records made before it).
+
+**Stale.** A plied record is stale when a dated linked record (§4), dated
+strictly after the record's last update (§3.5), mentions the record's id or
+an id in one of its reference fields other than `parent`. To *mention* is to
+contain the id anywhere in the linked record's file text, frontmatter
+included, with no letter, digit or `_` directly before or after it. A linked
+record that the record itself references never makes it stale, and a record
+with no history line is never stale. `parent` is left out because it is
+organisational (§3.3): a record about a group makes the group stale, not
+each of its children. (Before 0.4.0, `parent` counted.)
 
 ## 9. Access
 
@@ -759,7 +773,7 @@ command:
 | `find` | records without `body` and `text` |
 | `backlinks` | `[{id, how}]`, as in `show` |
 | `tree` | `[{id, title, status, rev, children: [...]}]`; a thread met a second time in a `parent` cycle is `{id, cycle: true}` |
-| `frontier` | `{queues: {actor: [{id, next, title, rev}]}, open_questions: [{id, title, rev}], dates: [{id, field, date, passed}]}`; `dates` lists every date field on an unresolved record, earliest first, and `passed` says whether it asks for attention today |
+| `frontier` | `{queues: {actor: [{id, next, title, rev}]}, unscheduled: [{id, actor, title, rev}], open_questions: [{id, title, rev}], dates: [{id, field, date, passed}]}`; `unscheduled` lists the open threads without `next`, so in no queue, in id order (`actor` null when unset; with `--actor`, only that actor's; added in 0.4.0); `dates` lists every date field on an unresolved record, earliest first, and `passed` says whether it asks for attention today |
 | `view` | `{path}`; with `--print` `{path, text}`; with `--check` `{path, current}`, exit 1 when not current |
 | `recover` | `{recovered: "finished", "undone" or null, files}` |
 | `gc` | `{removed}` |

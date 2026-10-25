@@ -588,7 +588,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             if json {
                 out_json(&views::tree_json(&st, id.as_deref()));
             } else {
-                outln!("{}", views::tree_lines(&st, id.as_deref()).join("\n"));
+                outln!("{}", views::tree_lines(&st, id.as_deref(), true).join("\n"));
             }
             Ok(0)
         }
@@ -971,6 +971,8 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, json: bool) -> Res<i32> {
     if let Some(a) = actor {
         fr.retain(|k, _| k == a);
     }
+    // with --actor, only that actor's unscheduled threads: the ones it owns but has not queued
+    let unscheduled: Vec<_> = views::unscheduled(&st).into_iter().filter(|r| actor.is_none_or(|a| doc::text(&r.meta, "actor").as_deref() == Some(a))).collect();
     let qs: Vec<_> = st.own(Some(OwnKind::Question)).into_iter().filter(|q| q.state_str() == Some("open")).collect();
     let dates = views::dates(&st, chrono::Utc::now().date_naive());
     if json {
@@ -981,9 +983,10 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, json: bool) -> Res<i32> {
                 Value::Array(v.iter().map(|r| json!({"id": r.id, "next": r.meta.get("next").map(Node::to_json), "title": r.title(), "rev": r.rev})).collect()),
             );
         }
+        let unsched: Vec<Value> = unscheduled.iter().map(|r| json!({"id": r.id, "actor": doc::text(&r.meta, "actor"), "title": r.title(), "rev": r.rev})).collect();
         let open: Vec<Value> = qs.iter().map(|q| json!({"id": q.id, "title": q.title(), "rev": q.rev})).collect();
         let dates: Vec<Value> = dates.iter().map(|(r, f, d, passed)| json!({"id": r.id, "field": f, "date": d.to_string(), "passed": passed})).collect();
-        out_json(&json!({"queues": obj, "open_questions": open, "dates": dates}));
+        out_json(&json!({"queues": obj, "unscheduled": unsched, "open_questions": open, "dates": dates}));
         return Ok(0);
     }
     for (actor_name, rs) in &fr {
@@ -991,6 +994,13 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, json: bool) -> Res<i32> {
         for r in rs {
             let n = r.meta.get("next").map(Node::to_string).unwrap_or_default();
             outln!("  {n}. {} {}", r.id, r.title());
+        }
+    }
+    if !unscheduled.is_empty() {
+        outln!("open, not scheduled:");
+        for r in &unscheduled {
+            let who = doc::text(&r.meta, "actor").map(|a| format!(" ({a})")).unwrap_or_default();
+            outln!("  {} {}{who}", r.id, r.title());
         }
     }
     if !qs.is_empty() && actor.is_none() {

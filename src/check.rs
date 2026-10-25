@@ -570,7 +570,8 @@ fn stale(store: &Store, p: &mut Report) {
     let dated: Vec<(DateTime<Utc>, &Record)> = store.linked().filter_map(|r| r.when().map(|d| (d, r))).collect();
     for n in store.own(None) {
         let Some(last) = n.last_update() else { continue };
-        let mut watch: HashSet<String> = n.refs().into_iter().map(|(_, rid)| rid).collect();
+        // `parent` is organisational (§3.3): news about a group is the group's to review, not each child's
+        let mut watch: HashSet<String> = n.refs().into_iter().filter(|(f, _)| *f != "parent").map(|(_, rid)| rid).collect();
         watch.insert(n.id.clone());
         let mut newer: Vec<String> = dated
             .iter()

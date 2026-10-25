@@ -206,6 +206,7 @@ fn skill_is_generated_by_the_binary_outside_a_repo() {
         "--expect <rev>",      // every write names the revision it read
         "re-read",             // batch writes chain revs, never reuse one
         "nodes=[T001, T002]",  // list assignment on `new`
+        "options+=",           // prose list items one by one, so a comma never splits them
         "normalised quotation",
         "…",
         "resolved_by", // a waived commitment needs an authority-checked resolver

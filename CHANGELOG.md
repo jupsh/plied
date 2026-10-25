@@ -4,6 +4,28 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- **`parent` no longer spreads staleness.** A linked record citing a group
+  thread used to make every child stale as well, each needing its own
+  review note. Now only the group goes stale, as `parent` is organisational
+  and carries no obligations either (FORMAT.md §8, *Stale*, which now also
+  defines what counts as a mention).
+
+- **The view no longer goes stale when a linked file changes.** It showed
+  the state of each thread's `backlog` record, so editing that linked file
+  made `plied view --check` fail although plied had written nothing. The view
+  now names the backlog id only; `plied tree` still shows its state
+  (FORMAT.md §7).
+- **`plied frontier` lists open threads in no queue** (no `next`), as the
+  view already did: under `--json` as `unscheduled`, with `--actor` only that
+  actor's (FORMAT.md §11.1).
+- **The skill takes revs from `plied show`.** It said to parse `--json` for
+  every rev and never use the human output, but `--expect` takes the 12-digit
+  prefix `show` prints. It now says to use the rev printed by the command
+  that showed the text, and to give prose list items (`options`) one `+=`
+  each, since a flow list splits at every unquoted comma.
+
 ## 0.3.0 — 2026-10-25
 
 - **`plied skill`** prints an agent skill (Markdown) generated from the

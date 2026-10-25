@@ -34,7 +34,7 @@ checked, appends a history line, and names the revision it was made against.
 export PLIED_AGENT=<your-name>        # or pass --as on every command
 plied --json check                    # baseline: know the errors you did not make
                                       # (failing check = exit 1, report still in result.diagnostics)
-plied --json frontier                 # queues by actor, open questions, dates
+plied --json frontier                 # queues by actor, unscheduled threads, open questions, dates
 plied --json tree                     # the whole work tree
 plied claim T001                      # say you are on a node before working it
 plied inbox --peek                    # --peek first: plain `inbox` marks read
@@ -42,16 +42,21 @@ plied inbox --peek                    # --peek first: plain `inbox` marks read
 
 ## Writes: the show → --expect cycle
 
-Every write names the revision it was made against. Script with `--json` and
-read the revision from the envelope, never from the truncated human output:
+Every write names the revision it was made against: the revision of the
+text you read, taken in the same command that showed you that text.
 
-1. `plied --json show T001` → the full revision is `result.rev`.
-2. `plied --json set T001 actor=bob --expect <rev> --why "…"` → on success the
-   new revision is again `result.rev` (`new` returns `result.id` and
-   `result.rev`).
+1. `plied show T001` prints `rev: 24c12b2de96d` above the record, and
+   `--expect` takes that prefix as it is (any 8 or more leading hex digits),
+   so there is nothing to parse. A script reads `result.rev` from
+   `plied --json show T001` instead. Never fetch a rev separately at write
+   time: if the record changed after you read it, that rev would let your
+   write through unchecked.
+2. `plied set T001 actor=bob --expect <rev> --why "…"` → on success it prints
+   the new revision (`updated T001 (rev …)`; under `--json`, `result.rev`, and
+   `new` also returns `result.id`).
 3. **Re-read the target's rev after every call.** In a batch of writes, chain
-   each call's `result.rev` into the next call on the same record, or `show`
-   it again. Never reuse a rev across two writes to the same record, and
+   each call's new rev into the next call on the same record, or `show` it
+   again. Never reuse a rev across two writes to the same record, and
    never write the same record in parallel.
 
 Exit 3 is a conflict: the record moved on. `show` it again, reconcile with
@@ -61,9 +66,11 @@ validation errors; they are in `error.detail.diagnostics`.
 
 Assignments work on `new` and `set`: `key=value` sets, `key=` clears,
 `key+=item` / `key-=item` edit a list, dotted keys nest
-(`approval.state=approved`), and a list is set in flow form, quoted for the
-shell — `plied new commitment --title "…" 'nodes=[T001, T002]'`. Long values
-come from `--set-file key=FILE` (or `--body FILE` on `new`).
+(`approval.state=approved`), and a list of ids is set in flow form, quoted
+for the shell — `plied new commitment --title "…" 'nodes=[T001, T002]'`. A
+flow list splits at every unquoted comma, so give prose items (`options`) one
+`+=` each: `'options+=keep A, then B' 'options+=drop it'`. Long values come
+from `--set-file key=FILE` (or `--body FILE` on `new`).
 
 ## Commitments: quote, attach, review
 
@@ -94,8 +101,8 @@ come from `--set-file key=FILE` (or `--body FILE` on `new`).
 
 `plied check` warns `commitment?` when a linked record from a
 `scan_commitments` source contains a conditional or deferral that no
-commitment records. Read the record first (`plied --json show D123` →
-`result.rev`), then decide:
+commitment records. Read the record first (`plied show D123`, and keep the
+`rev:` it prints), then decide:
 
 - **Record a commitment** when the text obliges a future check or act: a
   conditional promise ("if X, then Y"), a precondition ("before Z, do W"),
@@ -104,7 +111,7 @@ commitment records. Read the record first (`plied --json show D123` →
   `made=<that record>`, attached to the nodes it governs.
 - **Record a scan** when you have read the whole record at that revision
   and it holds no such obligation:
-  `plied scanned D123 --rev <result.rev> --on T001 --because "read in full: no conditional or deferral" --expect <T001's rev>`
+  `plied scanned D123 --rev <its rev> --on T001 --because "read in full: no conditional or deferral" --expect <T001's rev>`
   (the `--expect` is the *thread's* rev — re-read it first). A scan covers
   only the revision read; when the record changes, the warning returns and
   you scan again.
@@ -115,9 +122,9 @@ commitment records. Read the record first (`plied --json show D123` →
 ## Stale warnings: note each node's review
 
 A node goes **stale** when a dated linked record, newer than the node's last
-history line, cites the node or anything it links to. So one wide-citing
-entry (a decision or review citing many ids) makes every linked node stale
-at once. That is the design, not an error — and it does not clear itself.
+history line, mentions the node or anything it links to (`parent` aside). So
+one wide-citing entry (a decision or review citing many ids) makes every
+linked node stale at once. That is the design, not an error — and it does not clear itself.
 
 For each stale warning: read the new entry, decide whether it changes the
 node, then **note each node's review** so the record shows it happened:
