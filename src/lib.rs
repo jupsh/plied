@@ -20,6 +20,7 @@ pub mod pdf;
 pub mod query;
 pub mod records;
 pub mod repo;
+pub mod skill;
 pub mod review;
 pub mod textmatch;
 pub mod val;

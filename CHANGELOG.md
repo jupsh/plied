@@ -4,6 +4,12 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- **`plied skill`** prints an agent skill (Markdown) generated from the
+  installed binary's version and command list. It needs no repository
+  (FORMAT.md §11).
+
 ## 0.2.0 — 2026-10-24
 
 - **Scan reviews.** `plied scanned D001 --rev … --on T004 --because …`
