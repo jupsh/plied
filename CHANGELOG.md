@@ -14,9 +14,13 @@ are versioned separately from plied itself; see
   §3.1). ([#10](https://github.com/jupsh/plied/issues/10))
   - Lists that earlier plied *wrote* hold the merged item quoted
     (`[a, "it's b, c"]`). That is what the file says, so it still reads as
-    two items: look for them with
-    `grep -rnE "^ *[a-z_]+: \[.*\"[^\"]*'[^\"]*,[^\"]*\"" plied/` and fix
-    them with `plied set`. Hand-written lists now read correctly.
+    two items. A long list was written in block form, where the merged item
+    is not quoted at all (`- it's b, c`). Find them in either form with
+    `plied find '{"options": {"$regex": "\\S[\u0027\"].*,"}}'` (`options` is
+    the only prose list field: a mis-split ref list fails `check` as a broken
+    reference) and fix them with `plied set`. Hand-written lists now read
+    correctly. (Corrected after release: the grep first given here matched
+    flow lists only.)
   - plied 0.3.0 and earlier misread the lists this version writes, and a
     write by them would merge the items again. A store that upgrades should
     set `requires = ">=0.4.0"`.
