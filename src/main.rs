@@ -607,14 +607,21 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
         }
         Cmd::Claim { node, ttl, who } => {
             let who = who_of(who, true)?;
-            if ctx.store()?.get(node).is_none() {
-                return Err(Fail::new(format!("no record {node}")));
-            }
+            let st = ctx.store()?;
+            let r = st.get(node).ok_or_else(|| Fail::new(format!("no record {node}")))?;
             let c = ctx.messages().claim(node, &who.agent, who.session.as_deref(), *ttl)?;
+            // whoever takes up a node sees what it obliges before acting on it (§12)
+            let apps = node_commitments(&st, r);
             if json {
-                out_json(&c.to_json());
+                let mut o = c.to_json();
+                o.as_object_mut().unwrap().insert("commitments".into(), commitments_json(&apps));
+                out_json(&o);
             } else {
                 outln!("{} is on {node} until {} UTC (renewed by the hook, or claim again)", who.agent, c.expires().format("%Y-%m-%d %H:%M"));
+                if !apps.is_empty() {
+                    outln!("Commitments that apply (review before acting: `plied review {node}`):");
+                    outln!("{}", commitment_lines(&apps).join("\n"));
+                }
             }
             Ok(0)
         }
@@ -855,6 +862,9 @@ fn cmd_show(ctx: &Ctx, id: &str, json: bool) -> Res<i32> {
     if json {
         let mut o = r.to_json(&ctx.repo.cfg.base);
         o.insert("backlinks".into(), Value::Array(backlinks(&st, &r.id).iter().map(|(i, h)| json!({"id": i, "how": h})).collect()));
+        if takes_commitments(r) {
+            o.insert("commitments".into(), commitments_json(&node_commitments(&st, r)));
+        }
         out_json(&Value::Object(o));
         return Ok(0);
     }
@@ -888,15 +898,12 @@ fn record_text(ctx: &Ctx, st: &Store, r: &Record) -> Res<String> {
             l.push(format!("  {b} ({})", how.join(", ")));
         }
     }
-    if r.is_own() && matches!(r.own(), Some(OwnKind::Thread | OwnKind::Question)) {
-        let apps = review::applicable(st, std::slice::from_ref(&r.id), None);
+    if takes_commitments(r) {
+        let apps = node_commitments(st, r);
         if !apps.is_empty() {
             l.push(String::new());
             l.push("Commitments that apply:".into());
-            for a in apps {
-                let state = a.commitment.state_str().unwrap_or_default();
-                l.push(format!("  {} [{state}] {} — via {}", a.commitment.id, doc::take(&a.commitment.title(), 70), a.chains.first().cloned().unwrap_or_default()));
-            }
+            l.extend(commitment_lines(&apps));
         }
         let msgs = ctx.messages().events(&r.id);
         let n = msgs.iter().filter(|e| e.get("type").and_then(Value::as_str) == Some("message")).count();
@@ -910,6 +917,32 @@ fn record_text(ctx: &Ctx, st: &Store, r: &Record) -> Res<String> {
         }
     }
     Ok(l.join("\n"))
+}
+
+/// Threads and questions are the nodes `show` and `claim` list applicable commitments for.
+fn takes_commitments(r: &Record) -> bool {
+    r.is_own() && matches!(r.own(), Some(OwnKind::Thread | OwnKind::Question))
+}
+
+fn node_commitments<'s>(st: &'s Store, r: &Record) -> Vec<review::Applicable<'s>> {
+    if takes_commitments(r) { review::applicable(st, std::slice::from_ref(&r.id), None) } else { vec![] }
+}
+
+fn commitments_json(apps: &[review::Applicable]) -> Value {
+    Value::Array(
+        apps.iter()
+            .map(|a| json!({"id": a.commitment.id, "rev": a.commitment.rev, "state": a.commitment.state_str(), "title": a.commitment.title(), "chains": a.chains}))
+            .collect(),
+    )
+}
+
+fn commitment_lines(apps: &[review::Applicable]) -> Vec<String> {
+    apps.iter()
+        .map(|a| {
+            let state = a.commitment.state_str().unwrap_or_default();
+            format!("  {} [{state}] {} — via {}", a.commitment.id, doc::take(&a.commitment.title(), 70), a.chains.first().cloned().unwrap_or_default())
+        })
+        .collect()
 }
 
 fn cmd_list(ctx: &Ctx, kind: Option<&str>, state: Option<&str>, json: bool) -> Res<i32> {

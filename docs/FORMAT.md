@@ -776,7 +776,7 @@ command:
 |---|---|
 | `init` | `{path}` |
 | `skill` | `{version, skill}`: the agent skill as Markdown text, rendered from this binary's version and command inventory. Needs no repository. Without `--json` the skill itself is the stdout text. |
-| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]` |
+| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`; a plied thread or question also has `commitments: [{id, rev, state, title, chains}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0) |
 | `new`, `set`, `note`, `replace`, `dispose`, `scanned` | `{id, rev}`: the record written |
 | `list` | `[{id, kind, title, state, rev, path}]` |
 | `find` | records without `body` and `text` |
@@ -787,7 +787,7 @@ command:
 | `recover` | `{recovered: "finished", "undone" or null, files}` |
 | `gc` | `{removed}` |
 | `check` | `{diagnostics, errors, warnings, records, linked, config}` |
-| `claim` | a claim (§6) |
+| `claim` | a claim (§6), plus `commitments` as in `show`, empty unless the node is a plied thread or question (added in 0.6.0). Without `--json`, `claim` lists them too |
 | `release` | `{released}` |
 | `who` | claims, each with `expires` |
 | `send` | `{event, recorded_now}`; `recorded_now` is false for a retry (§5) |

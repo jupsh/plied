@@ -16,6 +16,13 @@ are versioned separately from plied itself; see
   ([#18](https://github.com/jupsh/plied/issues/18),
   [#19](https://github.com/jupsh/plied/issues/19),
   [#21](https://github.com/jupsh/plied/issues/21))
+- **`claim` lists the commitments that apply to the node.** Taking up a
+  node used to say only how long the lease runs, so an agent could start on
+  a node without seeing what it obliges. `claim` now lists the applicable
+  commitments (§12) and points to `plied review`, and its `--json` result
+  carries them as `commitments`. `show --json` carries the same list for a
+  thread or question, which plain `show` already printed (FORMAT.md §11.1).
+  ([#20](https://github.com/jupsh/plied/issues/20))
 
 ## 0.5.0 — 2026-10-25
 
