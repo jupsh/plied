@@ -480,6 +480,16 @@ fn an_assignment_operator_is_at_the_first_equals_sign() {
     assert_eq!(v["result"]["links"], serde_json::json!(["T002"]));
 }
 
+#[test]
+fn a_quote_opens_a_flow_item_only_at_its_start() {
+    let p = two_threads();
+    let options = |p: &Proj| envelope(&p.run(&["show", "Q01", "--json"]))["result"]["options"].clone();
+    p.ok(&["new", "question", "--title", "Q", "raised=T001", "options=[a, it's b, c]"]);
+    assert_eq!(options(&p), serde_json::json!(["a", "it's b", "c"]), "assigned");
+    p.edit("plied/questions/Q01-q.md", "options: [a, it's b, c]", "options: [a, it's b, 'c, d']");
+    assert_eq!(options(&p), serde_json::json!(["a", "it's b", "c, d"]), "read from a hand-written file");
+}
+
 // ------------------------------------------------------------ versions and configuration
 
 #[test]

@@ -182,7 +182,11 @@ Frontmatter is a strict subset of YAML in which every scalar is a string.
 - Block lists (`- item`), at the key's indentation or deeper. An item may be a
   mapping (`- key: value` followed by more keys aligned with the first).
 - Flow lists of scalars: `[a, "b, c", 'd']`. Nested collections inside a flow
-  list are errors; so is an empty item.
+  list are errors; so is an empty item. As in YAML, a quote opens a quoted
+  item only as the item's first character after spaces. Anywhere else it is
+  part of a plain item, so `[a, it's b, c]` is three items, and text after a
+  quoted item's closing quote is an error. (Before 0.4.0, plied opened a
+  quoted span at any quote, and read that list as `a` and `it's b, c`.)
 - Scalars: plain (to the end of the line, colons included; there are no inline
   comments), double-quoted (JSON string syntax), single-quoted (`''` is a
   quote).
