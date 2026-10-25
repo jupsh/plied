@@ -4,7 +4,7 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
-## Unreleased
+## 0.5.0 — 2026-10-25
 
 - **A resolved record goes stale only when named.** A closed thread, a
   fulfilled or waived commitment or an answered question used to go stale
