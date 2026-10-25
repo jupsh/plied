@@ -222,6 +222,11 @@ fn skill_is_generated_by_the_binary_outside_a_repo() {
         "plied dispose",
         "status=closed",  // closing sets the outcome in the same write
         "release --this-session",
+        "not at hand-off",           // parked work is noted when it is parked
+        "note what is unfinished",   // ... and again before release
+        "\"before any run of X\"", // a commitment's wording, not the action's size, decides
+        "plied review <node>` (no `--gate`)", // before a step of an inherited plan
+        "twenty reads",              // stale review in a script: one read per node
     ] {
         assert!(skill.contains(needle), "skill is missing {needle:?}:\n{skill}");
     }

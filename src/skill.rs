@@ -14,7 +14,7 @@ pub fn render(version: &str, commands: &[String]) -> String {
     format!(
         r#"---
 name: plied
-description: Work in a project that keeps its record in plied (a plied.toml and a plied/ directory). Use for reading or changing threads, commitments and questions, messaging whoever is on a node, reviewing commitments before a consequential action, and keeping `plied check` clean.
+description: Work in a project that keeps its record in plied (a plied.toml and a plied/ directory). Use for reading or changing threads, commitments and questions, messaging whoever is on a node, reviewing commitments before an action they govern, and keeping `plied check` clean.
 ---
 
 # plied {version}
@@ -44,10 +44,14 @@ The frontier is only as true as `actor` and `next`. When you take up a
 thread, set them (`actor=<you> next=1`; `actor` must be one of
 `checks.actors` when the project sets that) in the same write as your first
 note on it; when you set it down, clear `next` or change its status, so the
-next session sees what is really queued. Every write regenerates the view:
-there is no need to run `plied view` after writing. If `check` reports the
-view out of date, someone edited records by hand or a merge brought them
-in, so run `plied view` once and read what its diff changed.
+next session sees what is really queued. When you park work outside the
+record (a branch, a stash, scratch files, a run left going), note on the
+node what it is and where, at the time you park it, not at hand-off: a
+session can end without handing off, and a lease that lapses leaves no
+trace. Every write regenerates the view: there is no need to run
+`plied view` after writing. If `check` reports the view out of date,
+someone edited records by hand or a merge brought them in, so run
+`plied view` once and read what its diff changed.
 
 ## Writes: the show → --expect cycle
 
@@ -97,7 +101,8 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   must name a linked decision record (not a plied record) whose authority is
   accepted and whose scope includes the commitment's own id. "Cannot be
   verified" is a warning, never a pass.
-- Before any consequential action, gate it:
+- Before any action a commitment could govern (a run, a freeze, closing
+  work), gate it:
   `plied review T001 --action run:fit-20261024 --gate` exits 6 until every
   applicable commitment has a disposition **for that exact action** and the
   latest one is not `blocks`. Record yours with `plied dispose P01 --action
@@ -105,6 +110,14 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   (re-read P01's rev after every dispose, as for any write). A passing gate
   means each commitment was reviewed for this action — not that it is
   fulfilled.
+- A commitment's wording decides what it covers, not your sense of how big
+  the action is. One that says "before any run of X" covers every run of X:
+  a smoke, a toy run or a test that runs the governed code counts. When in
+  doubt, gate it.
+- Before carrying out a step of a plan an earlier session wrote, run
+  `plied review <node>` (no `--gate`) and read the list. A step written down
+  earlier is not a step reviewed: commitments may have been made since, and
+  the plan may never have been gated.
 - The gate examines only the nodes you name. Name every node the action
   depends on or produces results for (`plied review T001 T004 T009 …`), not
   only the one you are on: a commitment attached to a node you left out
@@ -152,6 +165,19 @@ then take its nodes one by one: `show` each, which gives you its rev with
 its text. Never batch-note nodes you have not read the entry against — the
 note is the evidence the review happened.
 
+Twenty stale nodes take twenty reads. In a script, the rev you pass is
+the one from the call whose text you judged:
+
+```sh
+plied --json show T001    # read result.text against the entry; keep result.rev
+plied note T001 "reviewed D140: …" --expect <that result.rev>
+```
+
+A loop that fetches revs just before writing (from `list`, or from a fresh
+`show` whose text nobody read) defeats the check: the rev no longer shows
+that the note was written against the current text. Write each note from
+that node's own text; one note pasted across a group is a rubber stamp.
+
 Say in the note what the entry touches and why the node is or is not
 affected, so a later reader can check your reasoning:
 `plied note T001 "reviewed D140: it changes the outlier rule; T001 only formats the tables, so it is unaffected" --expect <rev>`.
@@ -189,11 +215,14 @@ say so and ask for it to be sent where it can be.
 
 ## Before you hand off
 
-Run `plied check`. Hand off with 0 errors and 0 warnings, or name every
-warning left standing and why (an unscanned record, a node whose review you
-did not note). Do not claim a clean check you did not run in this session.
-Then `plied release --this-session` so your claims stop showing you as on the
-node (they expire on their own, but later).
+For each node you claimed, note what is unfinished and where it is (a
+branch, a stash, scratch files, a run still going), and set `next` or
+`status` to match. Then run `plied check`. Hand off with 0 errors and 0
+warnings, or name every warning left standing and why (an unscanned
+record, a node whose review you did not note). Do not claim a clean check
+you did not run in this session. Then `plied release --this-session` so
+your claims stop showing you as on the node (they expire on their own, but
+later).
 
 ## Exit codes
 
