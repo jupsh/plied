@@ -1,0 +1,31 @@
+name: Suggestion
+description: Something plied could do, or do differently. For bugs, open a blank issue instead.
+title: "suggestion: "
+labels: ["suggestion"]
+body:
+  - type: textarea
+    id: trying
+    attributes:
+      label: What were you trying to do?
+      description: The task, in a sentence or two. Leave out anyone's private records.
+    validations:
+      required: true
+  - type: textarea
+    id: gap
+    attributes:
+      label: What got in the way?
+      description: What plied lacks or makes awkward, and any workaround you used.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help?
+      description: A command, flag, field or check, if you have one in mind. Cite the docs/FORMAT.md section it would touch.
+  - type: input
+    id: version
+    attributes:
+      label: plied version
+      placeholder: output of `plied --version`
+    validations:
+      required: true
