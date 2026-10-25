@@ -570,12 +570,18 @@ fn stale(store: &Store, p: &mut Report) {
     let dated: Vec<(DateTime<Utc>, &Record)> = store.linked().filter_map(|r| r.when().map(|d| (d, r))).collect();
     for n in store.own(None) {
         let Some(last) = n.last_update() else { continue };
-        // `parent` is organisational (§3.3): news about a group is the group's to review, not each child's
-        let mut watch: HashSet<String> = n.refs().into_iter().filter(|(f, _)| *f != "parent").map(|(_, rid)| rid).collect();
+        let refs: HashSet<String> = n.refs().into_iter().map(|(_, rid)| rid).collect();
+        // `parent` is organisational (§3.3): news about a group is the group's to review, not each child's.
+        // A resolved record's links are history: only a record naming it directly (perhaps to reopen it) counts.
+        let mut watch: HashSet<String> = if n.is_resolved() {
+            HashSet::new()
+        } else {
+            n.refs().into_iter().filter(|(f, _)| *f != "parent").map(|(_, rid)| rid).collect()
+        };
         watch.insert(n.id.clone());
         let mut newer: Vec<String> = dated
             .iter()
-            .filter(|(d, r)| *d > last && !watch.contains(&r.id))
+            .filter(|(d, r)| *d > last && !refs.contains(&r.id) && r.id != n.id)
             .filter_map(|(_, r)| {
                 let mut hits: Vec<String> = store.mentions(&r.text).into_iter().filter(|t| watch.contains(t)).collect();
                 hits.sort();

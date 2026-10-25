@@ -412,6 +412,29 @@ fn a_record_about_a_group_makes_the_group_stale_not_its_children() {
     assert!(stale[0].contains("T001-") && stale[1].contains("T003-"), "the group and its user, not the child by parent: {stale:?}");
 }
 
+#[test]
+fn a_resolved_record_goes_stale_only_when_named() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    std::fs::write(p.path().join("log/D000.md"), "---\nid: D000\ntitle: old\ndate: 2000-01-01\n---\nDone.\n").unwrap();
+    p.ok(&["new", "thread", "--title", "Open"]);
+    for title in ["Closed user", "Closed named"] {
+        p.ok(&["new", "thread", "--title", title, "uses=T001", "status=closed", "outcome.ref=D000", "outcome.quote=Done."]);
+    }
+    // names T001, which both closed threads use, and T003 itself
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: news\ndate: 2999-01-01\n---\nT001 changes; T003 is reopened.\n").unwrap();
+    let stale: Vec<String> = envelope(&p.run(&["check", "--json"]))["result"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["code"] == "stale")
+        .map(|d| d["where"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(stale.len(), 2, "{stale:?}");
+    assert!(stale[0].contains("T001-") && stale[1].contains("T003-"), "the open node, and the closed one named, not the closed one by its link: {stale:?}");
+}
+
 // ------------------------------------------------------------------------ §7 the view
 
 #[test]

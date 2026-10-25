@@ -140,6 +140,10 @@ A node goes **stale** when a dated linked record, newer than the node's last
 history line, mentions the node or anything it links to (`parent` aside). So
 one wide-citing entry (a decision or review citing many ids) makes every
 linked node stale at once. That is the design, not an error — and it does not clear itself.
+A resolved record (closed thread, fulfilled or waived commitment, answered
+question) goes stale only when the entry names it directly. Then the
+question is whether the entry reopens it: say which in the note, and if it
+does, reopen it in the same write.
 
 For each stale warning: read the new entry, decide whether it changes the
 node, then **note each node's review** so the record shows it happened (or

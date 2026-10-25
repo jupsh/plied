@@ -4,6 +4,15 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- **A resolved record goes stale only when named.** A closed thread, a
+  fulfilled or waived commitment or an answered question used to go stale
+  whenever a new entry mentioned anything it linked, and each needed a
+  review note saying, in effect, "untouched". Its links are history, so now
+  only an entry that names the record itself makes it stale, since that
+  entry may be reopening it (FORMAT.md §8, *Stale*).
+
 ## 0.4.0 — 2026-10-25
 
 - **An apostrophe no longer swallows the rest of a flow list.** A quote in

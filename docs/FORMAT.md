@@ -560,14 +560,19 @@ in `checks.action_kinds` (code `action`, a warning so that adopting a
 vocabulary never blocks records made before it).
 
 **Stale.** A plied record is stale when a dated linked record (§4), dated
-strictly after the record's last update (§3.5), mentions the record's id or
-an id in one of its reference fields other than `parent`. To *mention* is to
+strictly after the record's last update (§3.5), mentions the record's id or,
+while the record is unresolved (§3.3), an id in one of its reference fields
+other than `parent`. To *mention* is to
 contain the id anywhere in the linked record's file text, frontmatter
 included, with no letter, digit or `_` directly before or after it. A linked
 record that the record itself references never makes it stale, and a record
 with no history line is never stale. `parent` is left out because it is
 organisational (§3.3): a record about a group makes the group stale, not
-each of its children. (Before 0.4.0, `parent` counted.)
+each of its children. (Before 0.4.0, `parent` counted.) A resolved record's
+references are history: a record about something a closed thread or a
+fulfilled commitment once linked cannot change what it concluded, while one
+that names the resolved record itself may be reopening it. (Before 0.5.0, a
+resolved record went stale through its references too.)
 
 ## 9. Access
 
