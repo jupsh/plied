@@ -6,6 +6,12 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- **`parent` no longer spreads staleness.** A linked record citing a group
+  thread used to make every child stale as well, each needing its own
+  review note. Now only the group goes stale, as `parent` is organisational
+  and carries no obligations either (FORMAT.md §8, *Stale*, which now also
+  defines what counts as a mention).
+
 - **The view no longer goes stale when a linked file changes.** It showed
   the state of each thread's `backlog` record, so editing that linked file
   made `plied view --check` fail although plied had written nothing. The view

@@ -546,7 +546,7 @@ ever appended.
 **Warnings:** a linked id not matching its pattern; an approval whose authority
 cannot be verified; a waiting node whose `waiting_on` is all resolved; a
 commitment attached to nothing; a body mentioning ids that do not exist; a
-node older than a dated linked record that cites what it links; a scanned
+*stale* node (below); a scanned
 source record with a commitment phrase that no commitment links
 (code `commitment?`; `scan_commitments`, from `commitments_since`) and that
 no thread's `scanned` covers at its current revision; an unlinked record of a
@@ -554,6 +554,16 @@ no thread's `scanned` covers at its current revision; an unlinked record of a
 asks for attention (§3.3, code `date`); a review whose action has a kind not
 in `checks.action_kinds` (code `action`, a warning so that adopting a
 vocabulary never blocks records made before it).
+
+**Stale.** A plied record is stale when a dated linked record (§4), dated
+strictly after the record's last update (§3.5), mentions the record's id or
+an id in one of its reference fields other than `parent`. To *mention* is to
+contain the id anywhere in the linked record's file text, frontmatter
+included, with no letter, digit or `_` directly before or after it. A linked
+record that the record itself references never makes it stale, and a record
+with no history line is never stale. `parent` is left out because it is
+organisational (§3.3): a record about a group makes the group stale, not
+each of its children. (Before 0.4.0, `parent` counted.)
 
 ## 9. Access
 

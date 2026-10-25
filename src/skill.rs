@@ -122,9 +122,9 @@ commitment records. Read the record first (`plied show D123`, and keep the
 ## Stale warnings: note each node's review
 
 A node goes **stale** when a dated linked record, newer than the node's last
-history line, cites the node or anything it links to. So one wide-citing
-entry (a decision or review citing many ids) makes every linked node stale
-at once. That is the design, not an error — and it does not clear itself.
+history line, mentions the node or anything it links to (`parent` aside). So
+one wide-citing entry (a decision or review citing many ids) makes every
+linked node stale at once. That is the design, not an error — and it does not clear itself.
 
 For each stale warning: read the new entry, decide whether it changes the
 node, then **note each node's review** so the record shows it happened:

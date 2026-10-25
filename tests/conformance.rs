@@ -390,6 +390,28 @@ fn frontier_lists_open_threads_in_no_queue() {
     assert_eq!(ids(&v), [("T002".to_string(), serde_json::json!("bob"))]);
 }
 
+// --------------------------------------------------------------------------- §8 stale
+
+#[test]
+fn a_record_about_a_group_makes_the_group_stale_not_its_children() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    p.ok(&["new", "thread", "--title", "Group", "status=group"]);
+    p.ok(&["new", "thread", "--title", "Child", "parent=T001"]);
+    p.ok(&["new", "thread", "--title", "User", "uses=T001"]);
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: news\ndate: 2999-01-01\n---\nT001 changes method.\n").unwrap();
+    let stale: Vec<String> = envelope(&p.run(&["check", "--json"]))["result"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["code"] == "stale")
+        .map(|d| d["where"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(stale.len(), 2, "{stale:?}");
+    assert!(stale[0].contains("T001-") && stale[1].contains("T003-"), "the group and its user, not the child by parent: {stale:?}");
+}
+
 // ------------------------------------------------------------------------ §7 the view
 
 #[test]
