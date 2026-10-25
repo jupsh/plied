@@ -36,7 +36,8 @@ plied --json check                    # baseline: know the errors you did not ma
                                       # (failing check = exit 1, report still in result.diagnostics)
 plied --json frontier                 # queues by actor, unscheduled threads, open questions, dates
 plied --json tree                     # the whole work tree
-plied claim T001                      # say you are on a node before working it
+plied claim T001                      # say you are on a node before working it;
+                                      # it lists the commitments that apply: read them
 plied inbox --peek                    # --peek first: plain `inbox` marks read
 ```
 

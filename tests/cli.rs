@@ -64,6 +64,45 @@ fn messages_review_gate_and_search() {
 }
 
 #[test]
+fn claim_and_show_list_the_commitments_that_apply() {
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "Calibrate the walking model"]);
+    p.ok(&["new", "thread", "--title", "Fit", "uses=[T001]"]);
+    p.ok(&["new", "thread", "--title", "Unrelated"]);
+    p.ok(&["new", "commitment", "--title", "Check first", "wording=Calibrate the walking model", "made=T001", "nodes=[T001]"]);
+
+    // a dependency's commitment applies (§12 rule 2), and claiming says so before any work starts
+    let out = p.ok(&["claim", "T002"]);
+    assert!(out.contains("Commitments that apply") && out.contains("P01 [open] Check first"), "{out}");
+    assert!(out.contains("plied review T002"), "{out}");
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["claim", "T002", "--json"])).unwrap();
+    let c = &v["result"]["commitments"][0];
+    assert_eq!((c["id"].as_str(), c["state"].as_str(), c["title"].as_str()), (Some("P01"), Some("open"), Some("Check first")));
+    assert_eq!(c["rev"], p.rev("P01"));
+    assert_eq!(c["chains"][0], "T002 uses T001 ← P01");
+    assert_eq!(v["result"]["node"], "T002", "the claim's own fields are kept");
+
+    // nothing applies: the list is empty, and the text says nothing about commitments
+    assert!(!p.ok(&["claim", "T003"]).contains("Commitments"));
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["claim", "T003", "--json"])).unwrap();
+    assert_eq!(v["result"]["commitments"], serde_json::json!([]));
+    // a commitment is not a node commitments apply to
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["claim", "P01", "--json"])).unwrap();
+    assert_eq!(v["result"]["commitments"], serde_json::json!([]));
+
+    // `show --json` carries the same list that `show` prints, for threads and questions only
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["show", "T002", "--json"])).unwrap();
+    assert_eq!(v["result"]["commitments"][0]["id"], "P01");
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["show", "P01", "--json"])).unwrap();
+    assert!(v["result"].get("commitments").is_none(), "{v}");
+    // a resolved commitment no longer applies
+    let rev = p.rev("P01");
+    p.ok(&["set", "P01", "state=not-triggered", "resolved_by=T001", "--expect", &rev]);
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["show", "T002", "--json"])).unwrap();
+    assert_eq!(v["result"]["commitments"], serde_json::json!([]));
+}
+
+#[test]
 fn next_write_undoes_an_interrupted_one() {
     let p = Proj::new();
     p.ok(&["new", "thread", "--title", "First"]);
@@ -227,6 +266,7 @@ fn skill_is_generated_by_the_binary_outside_a_repo() {
         "\"before any run of X\"", // a commitment's wording, not the action's size, decides
         "plied review <node>` (no `--gate`)", // before a step of an inherited plan
         "twenty reads",              // stale review in a script: one read per node
+        "lists the commitments that apply", // claim shows what a node obliges
     ] {
         assert!(skill.contains(needle), "skill is missing {needle:?}:\n{skill}");
     }
