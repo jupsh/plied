@@ -4,7 +4,7 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use serde_json::{Value, json};
 
 use plied::access::Policy;
@@ -52,6 +52,8 @@ struct WhoArgs {
 enum Cmd {
     /// write a plied.toml template here
     Init,
+    /// print the agent skill for this version (needs no repository)
+    Skill,
     /// show a record with its revision, links, backlinks, commitments and presence
     Show { id: String },
     /// create a record
@@ -425,6 +427,24 @@ fn assignments_of(assign: &[String], set_file: &[String]) -> Res<Vec<String>> {
     Ok(out)
 }
 
+/// The agent skill, rendered from this binary's own version and command inventory.
+fn skill_text() -> String {
+    fn walk(cmd: &clap::Command, prefix: &str, lines: &mut Vec<String>) {
+        for sub in cmd.get_subcommands() {
+            if sub.is_hide_set() {
+                continue;
+            }
+            let name = format!("{prefix} {}", sub.get_name());
+            let about = sub.get_about().map(|a| a.to_string()).unwrap_or_default();
+            lines.push(if about.is_empty() { format!("- `{name}`") } else { format!("- `{name}` — {about}") });
+            walk(sub, &name, lines);
+        }
+    }
+    let mut lines = vec![];
+    walk(&Cli::command(), "plied", &mut lines);
+    plied::skill::render(plied::VERSION, &lines)
+}
+
 fn main() {
     let code = real_main();
     if code != 0 {
@@ -469,6 +489,16 @@ fn real_main() -> i32 {
 fn run(cli: &Cli) -> Res<i32> {
     match &cli.cmd {
         Cmd::Init => cmd_init(cli),
+        // no repository: the skill describes this binary, wherever it runs
+        Cmd::Skill => {
+            let text = skill_text();
+            if cli.json {
+                out_json(&json!({"version": plied::VERSION, "skill": text}));
+            } else {
+                outln!("{text}");
+            }
+            Ok(0)
+        }
         Cmd::Hook { agent, debug } => {
             if agent != "claude" {
                 return Err(Fail::code(EXIT_USAGE, "only `plied hook claude` exists so far; other agents poll with `plied inbox`"));

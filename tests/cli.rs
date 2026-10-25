@@ -190,6 +190,49 @@ fn check_reports_broken_records_and_literature() {
     assert!(p2.run(&["check"]).status.success(), "{}", text(&p2.run(&["check"])));
 }
 
+#[test]
+fn skill_is_generated_by_the_binary_outside_a_repo() {
+    use std::process::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| Command::new(bin()).current_dir(dir.path()).args(args).output().unwrap();
+
+    let out = run(&["skill"]);
+    assert!(out.status.success(), "{}", text(&out));
+    let skill = String::from_utf8(out.stdout).unwrap();
+    assert!(skill.starts_with("---\nname: plied\n"), "{skill}");
+    assert!(skill.contains(&format!("plied {}", env!("CARGO_PKG_VERSION"))), "generated for this version:\n{skill}");
+    for needle in [
+        "result.rev",          // the show -> --expect cycle, read from the JSON envelope
+        "--expect <rev>",      // every write names the revision it read
+        "re-read",             // batch writes chain revs, never reuse one
+        "nodes=[T001, T002]",  // list assignment on `new`
+        "normalised quotation",
+        "…",
+        "resolved_by", // a waived commitment needs an authority-checked resolver
+        "plied scanned", // scan triage: record the negative finding
+        "stale",       // a wide-citing entry makes linked nodes stale
+        "note each",   // ... and each one gets its review noted
+        "plied review", // the command inventory is part of the text
+        "plied dispose",
+        "status=closed",  // closing sets the outcome in the same write
+        "release --this-session",
+    ] {
+        assert!(skill.contains(needle), "skill is missing {needle:?}:\n{skill}");
+    }
+
+    // under --json the skill travels in the envelope like every other result
+    let out = run(&["skill", "--json"]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(out.stderr.is_empty(), "{}", text(&out));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["result"]["version"], env!("CARGO_PKG_VERSION"));
+    assert!(v["result"]["skill"].as_str().unwrap().contains("result.rev"));
+
+    // no command at all is still a usage error, as before
+    assert_eq!(run(&[]).status.code(), Some(2));
+}
+
 /// Run plied with stdout a pipe whose reader goes away before reading anything.
 fn with_stdout_closed(p: &Proj, args: &[&str]) -> std::process::Output {
     use std::process::{Command, Stdio};

@@ -752,6 +752,7 @@ command:
 | command | `result` |
 |---|---|
 | `init` | `{path}` |
+| `skill` | `{version, skill}`: the agent skill as Markdown text, rendered from this binary's version and command inventory. Needs no repository. Without `--json` the skill itself is the stdout text. |
 | `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]` |
 | `new`, `set`, `note`, `replace`, `dispose`, `scanned` | `{id, rev}`: the record written |
 | `list` | `[{id, kind, title, state, rev, path}]` |
