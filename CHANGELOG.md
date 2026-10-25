@@ -4,7 +4,7 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
-## Unreleased
+## 0.4.0 — 2026-10-25
 
 - **An apostrophe no longer swallows the rest of a flow list.** A quote in
   the middle of an item (`[a, it's b, c]`) opened a quoted span that ran on
