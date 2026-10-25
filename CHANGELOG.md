@@ -4,6 +4,19 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- **The skill covers hand-offs that never happen, and small runs.** Work
+  parked outside the record is noted on the node when it is parked, since a
+  session can end without handing off, and hand-off notes what is unfinished
+  before `release`. A commitment's wording decides what it covers: "before
+  any run" includes a smoke run. A step of a plan an earlier session wrote
+  is preceded by `plied review <node>`. Stale review in a script takes each
+  rev from the `show` whose text was judged, one node at a time.
+  ([#18](https://github.com/jupsh/plied/issues/18),
+  [#19](https://github.com/jupsh/plied/issues/19),
+  [#21](https://github.com/jupsh/plied/issues/21))
+
 ## 0.5.0 — 2026-10-25
 
 - **A resolved record goes stale only when named.** A closed thread, a
