@@ -123,7 +123,7 @@ enum Cmd {
     Backlinks { id: String },
     /// print the work tree
     Tree { id: Option<String> },
-    /// scheduled work by actor, and open questions
+    /// scheduled work by actor, unscheduled open threads, open questions and dates
     Frontier { #[arg(long)] actor: Option<String> },
     /// regenerate the Markdown view
     View {

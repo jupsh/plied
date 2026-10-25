@@ -6,6 +6,15 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- **The skill draws on a first session in a real store.** Stale-review
+  notes now say what the entry touches and why the node is or is not
+  affected, since "no change" notes become a rubber stamp. An id-shaped name
+  in an entry is noted on the node, never reworded away in the linked
+  record. The gate needs every node an action depends on, and a fresh
+  action name per run. An answer heard in conversation counts only once a
+  decision record holds it. Keeping `actor` and `next` current keeps the
+  frontier true, and `plied view` need not be run after writes.
+
 - **`parent` no longer spreads staleness.** A linked record citing a group
   thread used to make every child stale as well, each needing its own
   review note. Now only the group goes stale, as `parent` is organisational

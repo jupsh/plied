@@ -40,6 +40,15 @@ plied claim T001                      # say you are on a node before working it
 plied inbox --peek                    # --peek first: plain `inbox` marks read
 ```
 
+The frontier is only as true as `actor` and `next`. When you take up a
+thread, set them (`actor=<you> next=1`; `actor` must be one of
+`checks.actors` when the project sets that) in the same write as your first
+note on it; when you set it down, clear `next` or change its status, so the
+next session sees what is really queued. Every write regenerates the view:
+there is no need to run `plied view` after writing. If `check` reports the
+view out of date, someone edited records by hand or a merge brought them
+in, so run `plied view` once and read what its diff changed.
+
 ## Writes: the show → --expect cycle
 
 Every write names the revision it was made against: the revision of the
@@ -96,6 +105,12 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   (re-read P01's rev after every dispose, as for any write). A passing gate
   means each commitment was reviewed for this action — not that it is
   fulfilled.
+- The gate examines only the nodes you name. Name every node the action
+  depends on or produces results for (`plied review T001 T004 T009 …`), not
+  only the one you are on: a commitment attached to a node you left out
+  never comes up. Run it before the action, and use a fresh action name
+  (`run:fit-<date>`) each time, so an old review never stands in for a new
+  run. A `because` says what you checked, not that you checked.
 
 ## Scan triage: commitment, scan, or neither
 
@@ -127,11 +142,24 @@ one wide-citing entry (a decision or review citing many ids) makes every
 linked node stale at once. That is the design, not an error — and it does not clear itself.
 
 For each stale warning: read the new entry, decide whether it changes the
-node, then **note each node's review** so the record shows it happened:
-`plied note T001 "reviewed D140: no change needed" --expect <rev>` (or make
-the change it calls for instead, and note that). Re-read the rev between
-writes to the same node. Never batch-note nodes you have not read the entry
-against — the note is the evidence the review happened.
+node, then **note each node's review** so the record shows it happened (or
+make the change it calls for instead, and note that). Read the entry once,
+then take its nodes one by one: `show` each, which gives you its rev with
+its text. Never batch-note nodes you have not read the entry against — the
+note is the evidence the review happened.
+
+Say in the note what the entry touches and why the node is or is not
+affected, so a later reader can check your reasoning:
+`plied note T001 "reviewed D140: it changes the outlier rule; T001 only formats the tables, so it is unaffected" --expect <rev>`.
+"reviewed D140: no change" records that you looked, not what you saw, and a
+string of them is a rubber stamp.
+
+The check counts any id-shaped text as a mention. When an entry uses an id
+as a name for something else (a simulation set called "P20" is not
+commitment P20), note exactly that on the node: `"D146 names a simulation
+set P20; it does not cite commitment P20"`. Never edit a linked record to
+quiet a warning: linked records belong to their own system, and decisions
+belong to whoever made them.
 
 ## Messages and presence
 
@@ -149,7 +177,11 @@ from `outcome.ref`, plus `carries` for problems it leaves open. Set them in
 the same write as the status — `status=closed` alone is refused (exit 4):
 `plied set T001 status=closed 'outcome.quote=…' outcome.ref=D150 --expect <rev> --why "…"`. A question is
 answered only by `answered_by` naming a record with the authority and scope
-for it, just as `approval.by` is checked the same way.
+for it, just as `approval.by` is checked the same way. An answer you hear in
+conversation is not yet an answer: get it written into a decision record the
+project accepts, in the decider's words, then set `answered_by` to that
+record. If you have no way to record it (a side conversation without tools),
+say so and ask for it to be sent where it can be.
 
 ## Before you hand off
 
