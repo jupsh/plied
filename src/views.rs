@@ -35,7 +35,9 @@ fn is_unscheduled_open(r: &Record) -> bool {
     r.status() == Some(ThreadStatus::Open) && next(r).is_none()
 }
 
-pub fn node_summary(store: &Store, r: &Record) -> String {
+/// One node's state line. `linked_state` adds the state of a `backlog` record, which is linked:
+/// the generated view leaves it out, because a linked file can change without a plied write (§7).
+pub fn node_summary(store: &Store, r: &Record, linked_state: bool) -> String {
     let m = &r.meta;
     let st = r.state_str().filter(|s| !s.is_empty());
     let mut bits: Vec<String> = vec![];
@@ -76,13 +78,17 @@ pub fn node_summary(store: &Store, r: &Record) -> String {
     }
     if let Some(b) = doc::set(m, "backlog") {
         let id = node_ref(b);
-        let state = store.get(&id).and_then(Record::state).filter(|s| !s.is_empty()).map_or("?".into(), Node::to_string);
-        bits.push(format!("[{id}: {state}]"));
+        if linked_state {
+            let state = store.get(&id).and_then(Record::state).filter(|s| !s.is_empty()).map_or("?".into(), Node::to_string);
+            bits.push(format!("[{id}: {state}]"));
+        } else {
+            bits.push(format!("[{id}]"));
+        }
     }
     bits.join(", ")
 }
 
-pub fn tree_lines(store: &Store, root: Option<&str>) -> Vec<String> {
+pub fn tree_lines(store: &Store, root: Option<&str>, linked_state: bool) -> Vec<String> {
     let threads = store.own(Some(OwnKind::Thread));
     let ids: HashSet<&str> = threads.iter().map(|r| r.id.as_str()).collect();
     let mut kids: HashMap<Option<String>, Vec<&Record>> = HashMap::new();
@@ -96,6 +102,7 @@ pub fn tree_lines(store: &Store, root: Option<&str>) -> Vec<String> {
         kids: HashMap<Option<String>, Vec<&'s Record>>,
         rows: Vec<(String, String)>,
         seen: HashSet<String>,
+        linked_state: bool,
     }
     impl<'s> Walk<'s> {
         fn visit(&mut self, r: &'s Record, prefix: &str, last: bool, top: bool) {
@@ -104,7 +111,7 @@ pub fn tree_lines(store: &Store, root: Option<&str>) -> Vec<String> {
                 self.rows.push((format!("{prefix}{branch}{} (cycle)", r.id), String::new()));
                 return;
             }
-            self.rows.push((format!("{prefix}{branch}{}  {}", r.id, short(&r.title(), TITLE_WIDTH)), node_summary(self.store, r)));
+            self.rows.push((format!("{prefix}{branch}{}  {}", r.id, short(&r.title(), TITLE_WIDTH)), node_summary(self.store, r, self.linked_state)));
             let children = self.kids.get(&Some(r.id.clone())).cloned().unwrap_or_default();
             let sub = format!("{prefix}{}", if top { "" } else if last { "    " } else { "│   " });
             for (i, c) in children.iter().enumerate() {
@@ -117,7 +124,7 @@ pub fn tree_lines(store: &Store, root: Option<&str>) -> Vec<String> {
         Some(id) => store.get(id).into_iter().collect(),
         None => kids.get(&None).cloned().unwrap_or_default(),
     };
-    let mut walk = Walk { store, kids, rows: vec![], seen: HashSet::new() };
+    let mut walk = Walk { store, kids, rows: vec![], seen: HashSet::new(), linked_state };
     for (i, r) in starts.iter().enumerate() {
         walk.visit(r, "", true, true);
         if i < starts.len() - 1 {
@@ -184,6 +191,11 @@ pub fn frontier(store: &Store) -> BTreeMap<String, Vec<&Record>> {
     out
 }
 
+/// Open threads with no `next`, so in no queue, in id order.
+pub fn unscheduled(store: &Store) -> Vec<&Record> {
+    store.own(Some(OwnKind::Thread)).into_iter().filter(|r| is_unscheduled_open(r)).collect()
+}
+
 pub fn render_view(store: &Store) -> String {
     let cfg = &store.cfg;
     let link = |kind: OwnKind, r: &Record| format!("[{}]({}/{})", r.id, cfg.kind(kind).dir, file_name(&r.path));
@@ -207,7 +219,7 @@ pub fn render_view(store: &Store) -> String {
         l.push("".into());
     }
     let threads = store.own(Some(OwnKind::Thread));
-    let unscheduled: Vec<&str> = threads.iter().filter(|r| is_unscheduled_open(r)).map(|r| r.id.as_str()).collect();
+    let unscheduled: Vec<&str> = unscheduled(store).iter().map(|r| r.id.as_str()).collect();
     if !unscheduled.is_empty() {
         l.extend(["".into(), format!("**Open, not scheduled:** {}", unscheduled.join(", ")), "".into()]);
     }
@@ -259,7 +271,7 @@ pub fn render_view(store: &Store) -> String {
         }
     }
 
-    let tree = tree_lines(store, None);
+    let tree = tree_lines(store, None, false);
     l.extend(["".into(), "## Tree".into(), "".into(), "```".into()]);
     if tree.is_empty() {
         l.push("(empty)".into());

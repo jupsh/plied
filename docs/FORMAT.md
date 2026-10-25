@@ -482,8 +482,12 @@ earlier in the same log; anything else is an error.
 
 `<root>/README.md` is generated from the records after every write. Its content
 is not part of this specification, except that it MUST be a deterministic
-function of the records, so `plied view --check` can tell whether it is
-current.
+function of plied's own records, so `plied view --check` can tell whether it is
+current. It MUST NOT depend on linked records (§4), which change without a
+plied write: a linked file edited by hand, or by the system it comes from,
+never makes the view out of date. It may name a linked record's id, but not
+show its state or other content. (Before 0.4.0, the view showed a `backlog`
+record's state.)
 
 ## 8. Checks
 
@@ -759,7 +763,7 @@ command:
 | `find` | records without `body` and `text` |
 | `backlinks` | `[{id, how}]`, as in `show` |
 | `tree` | `[{id, title, status, rev, children: [...]}]`; a thread met a second time in a `parent` cycle is `{id, cycle: true}` |
-| `frontier` | `{queues: {actor: [{id, next, title, rev}]}, open_questions: [{id, title, rev}], dates: [{id, field, date, passed}]}`; `dates` lists every date field on an unresolved record, earliest first, and `passed` says whether it asks for attention today |
+| `frontier` | `{queues: {actor: [{id, next, title, rev}]}, unscheduled: [{id, actor, title, rev}], open_questions: [{id, title, rev}], dates: [{id, field, date, passed}]}`; `unscheduled` lists the open threads without `next`, so in no queue, in id order (`actor` null when unset; with `--actor`, only that actor's; added in 0.4.0); `dates` lists every date field on an unresolved record, earliest first, and `passed` says whether it asks for attention today |
 | `view` | `{path}`; with `--print` `{path, text}`; with `--check` `{path, current}`, exit 1 when not current |
 | `recover` | `{recovered: "finished", "undone" or null, files}` |
 | `gc` | `{removed}` |
