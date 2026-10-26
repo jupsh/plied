@@ -4,6 +4,13 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- **Document what record dates establish.** FORMAT.md §3.5 and the README
+  now distinguish writer-supplied times from independently anchored evidence
+  that a record preceded an event. No file format or checking behaviour changes.
+  ([#36](https://github.com/jupsh/plied/issues/36))
+
 ## 0.7.0 — 2026-10-25
 
 - **A commitment can be superseded by another.** A decision that replaces

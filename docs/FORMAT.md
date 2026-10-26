@@ -372,8 +372,16 @@ line):
 - YYYY-MM-DD HH:MM UTC <agent>[ (session <first 8 characters>)]: <what>[ — <why>]
 ```
 
-The time is the minute of the change. A node's *last update* is its latest
-history line.
+The time is the minute of the change according to the writing machine's
+clock. A node's *last update* is its latest history line.
+
+Record dates are claims by the writer, not evidence that the record existed
+before an external event. History times and a review's `at` use the writing
+machine's clock; linked dates are supplied by their writers, and git commit
+dates can be set by the committer. Establishing precedence needs an anchor
+the writer cannot create or rewrite alone, such as an independently held
+checkpoint. The proposed receipts and attestations (see [SCOPE.md](SCOPE.md))
+would need such an anchor too; they are not implemented timestamp guarantees.
 
 ### 3.6 Quotations
 
