@@ -139,7 +139,8 @@ just without a diff.
 **Action kinds** (§12). An action is `kind` or `kind:instance`. With
 `checks.action_kinds` set, `review` and `dispose` refuse an unknown kind
 (exit 2). `check` only warns about reviews recorded before the vocabulary
-existed. The gate still compares whole names. It does not check that the
+existed. A commitment can name the kinds it `governs`, which needs the
+vocabulary, so that a misspelt kind is an error rather than an open gate. The gate still compares whole names. It does not check that the
 caller chose the right nodes, or that the gate was run at all.
 
 **Typed dates** (§3.3). `due` (every kind) and `revisit_on` (threads) are

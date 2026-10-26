@@ -74,8 +74,12 @@ impl Report {
     }
 
     fn warn(&mut self, code: &str, at: &str, msg: impl Into<String>) {
+        self.warn_on(code, at, "", msg);
+    }
+
+    fn warn_on(&mut self, code: &str, at: &str, subject: &str, msg: impl Into<String>) {
         if self.warnings {
-            self.out.push(Problem { level: Level::Warning, code: code.into(), location: at.into(), subject: String::new(), message: msg.into() });
+            self.out.push(Problem { level: Level::Warning, code: code.into(), location: at.into(), subject: subject.into(), message: msg.into() });
         }
     }
 }
@@ -117,8 +121,9 @@ pub fn run(store: &Store, inputs: &Inputs) -> Vec<Problem> {
         cites(r, &at, inputs.library, &mut p);
         body_mentions(store, r, &at, &mut p);
     }
-    cycles(store, "waiting_on", &mut p);
-    cycles(store, "parent", &mut p);
+    cycles(store, OwnKind::Thread, "waiting_on", &mut p);
+    cycles(store, OwnKind::Thread, "parent", &mut p);
+    cycles(store, OwnKind::Commitment, "superseded_by", &mut p);
     if let Some(m) = inputs.messages {
         for (at, msg) in m.verify() {
             p.err("messages", &at, "", msg);
@@ -127,6 +132,7 @@ pub fn run(store: &Store, inputs: &Inputs) -> Vec<Problem> {
     if inputs.warnings {
         dates(store, &mut p);
         stale(store, &mut p);
+        supersessions(store, &mut p);
         unrecorded_commitments(store, &mut p);
         unlinked(store, &mut p);
         let vp = cfg.view_path();
@@ -239,6 +245,8 @@ fn refs(store: &Store, r: &Record, at: &str, p: &mut Report) {
             "nodes" if !(t.is(OwnKind::Thread) || t.is(OwnKind::Question)) => p.err("ref", at, &subject, format!("nodes: {rid} is not a thread or question")),
             "backlog" if t.is_own() => p.err("ref", at, &subject, format!("backlog: {rid} is a plied record, not a linked item")),
             "waiting_on" | "uses" if rid == r.id => p.err("ref", at, &subject, format!("{f}: a node cannot depend on itself")),
+            "superseded_by" if rid == r.id => p.err("ref", at, &subject, "superseded_by: a commitment cannot replace itself"),
+            "superseded_by" if !t.is(OwnKind::Commitment) => p.err("ref", at, &subject, format!("superseded_by: {rid} is not a commitment")),
             _ => {}
         }
     }
@@ -402,11 +410,22 @@ fn commitment(store: &Store, r: &Record, at: &str, p: &mut Report) {
     {
         p.err("required", at, "resolved_by", format!("state {st} needs resolved_by (the record that says so)"));
     }
-    if state == Some(CommitmentState::Waived)
-        && let Some(rb) = resolved_by
-    {
-        authority(store, rb, &r.id, at, p, "waiver");
+    // releasing an obligation, or moving it into another commitment, is a decision (§4)
+    let decided = match state {
+        Some(CommitmentState::Waived) => Some("waiver"),
+        Some(CommitmentState::Superseded) => Some("supersession"),
+        _ => None,
+    };
+    if let (Some(what), Some(rb)) = (decided, resolved_by) {
+        authority(store, rb, &r.id, at, p, what);
     }
+    let superseded_by = doc::set(m, "superseded_by");
+    if state == Some(CommitmentState::Superseded) && superseded_by.is_none() {
+        p.err("required", at, "superseded_by", "state superseded needs superseded_by (the commitment that now holds the obligation)");
+    } else if let Some(st) = state.filter(|s| *s != CommitmentState::Superseded && superseded_by.is_some()) {
+        p.err("state", at, "superseded_by", format!("superseded_by is set but state is {st}"));
+    }
+    governs(store, r, at, p);
     let applies = match m.get("applies") {
         None => Some(Applies::Linked),
         Some(v) => v.str().and_then(Applies::parse),
@@ -431,6 +450,23 @@ fn commitment(store: &Store, r: &Record, at: &str, p: &mut Report) {
                     p.warn("action", at, format!("reviews[{i}]: {msg}"));
                 }
             }
+        }
+    }
+}
+
+/// `governs` names action kinds from `checks.action_kinds` (§3.3). Without that vocabulary a misspelt
+/// kind would leave the commitment governing nothing, so `governs` needs it.
+fn governs(store: &Store, r: &Record, at: &str, p: &mut Report) {
+    let Some(v) = doc::set(&r.meta, "governs") else { return };
+    let Some(vocabulary) = store.cfg.action_kinds.as_ref() else {
+        p.err("field", at, "governs", "governs needs checks.action_kinds, so that a misspelt kind cannot leave a commitment governing nothing");
+        return;
+    };
+    for k in v.items() {
+        match k.scalar() {
+            Some(k) if vocabulary.contains(&k) => {}
+            Some(k) => p.err("field", at, &format!("governs:{k}"), format!("governs: {k:?} is not one of checks.action_kinds ({})", vocabulary.join(", "))),
+            None => p.err("field", at, "governs", "governs must be a list of action kinds"),
         }
     }
 }
@@ -486,9 +522,9 @@ fn body_mentions(store: &Store, r: &Record, at: &str, p: &mut Report) {
 
 // ----------------------------------------------------------------------------------- graph
 
-fn cycles(store: &Store, field: &str, p: &mut Report) {
-    let threads = store.own(Some(OwnKind::Thread));
-    let graph: HashMap<&str, Vec<String>> = threads
+fn cycles(store: &Store, kind: OwnKind, field: &str, p: &mut Report) {
+    let records = store.own(Some(kind));
+    let graph: HashMap<&str, Vec<String>> = records
         .iter()
         .map(|r| {
             let targets = match r.meta.get(field) {
@@ -541,7 +577,7 @@ fn cycles(store: &Store, field: &str, p: &mut Report) {
     }
 
     let mut walk = Walk { graph: &graph, marks: HashMap::new(), reported: HashSet::new(), path: vec![] };
-    for r in &threads {
+    for r in &records {
         if !walk.marks.contains_key(&r.id) {
             walk.path = vec![r.id.clone()];
             walk.visit(&r.id, field, p);
@@ -566,8 +602,12 @@ fn dates(store: &Store, p: &mut Report) {
     }
 }
 
+/// Stale nodes (§8), in two kinds: `named`, when a newer record names the node itself, and `links`,
+/// when it cites only what the node references. Named ones come first: they are the likelier to
+/// call for a change rather than a note.
 fn stale(store: &Store, p: &mut Report) {
     let dated: Vec<(DateTime<Utc>, &Record)> = store.linked().filter_map(|r| r.when().map(|d| (d, r))).collect();
+    let (mut named, mut via_links) = (vec![], vec![]);
     for n in store.own(None) {
         let Some(last) = n.last_update() else { continue };
         let refs: HashSet<String> = n.refs().into_iter().map(|(_, rid)| rid).collect();
@@ -579,23 +619,78 @@ fn stale(store: &Store, p: &mut Report) {
             n.refs().into_iter().filter(|(f, _)| *f != "parent").map(|(_, rid)| rid).collect()
         };
         watch.insert(n.id.clone());
-        let mut newer: Vec<String> = dated
+        let (mut by_name, mut by_links) = (vec![], vec![]);
+        for (_, r) in dated.iter().filter(|(d, r)| *d > last && !refs.contains(&r.id) && r.id != n.id) {
+            let mut hits: Vec<String> = store.mentions(&r.text).into_iter().filter(|t| watch.contains(t)).collect();
+            if hits.is_empty() {
+                continue;
+            }
+            hits.sort();
+            let entry = format!("{} (cites {})", r.id, hits.join(", "));
+            if hits.contains(&n.id) { by_name.push(entry) } else { by_links.push(entry) }
+        }
+        let at = rel(&store.cfg.base, &n.path);
+        if !by_name.is_empty() {
+            named.push((at.clone(), format!("records newer than this node's last history line name it: {}", listed(by_name))));
+        }
+        if !by_links.is_empty() {
+            via_links.push((at, format!("records newer than this node's last history line cite its links, not the node: {}", listed(by_links))));
+        }
+    }
+    for (at, msg) in named {
+        p.warn_on("stale", &at, "named", msg);
+    }
+    for (at, msg) in via_links {
+        p.warn_on("stale", &at, "links", msg);
+    }
+}
+
+/// The first six entries, sorted, with an ellipsis for the rest.
+fn listed(mut entries: Vec<String>) -> String {
+    entries.sort();
+    let more = if entries.len() > 6 { " …" } else { "" };
+    entries.truncate(6);
+    format!("{}{more}", entries.join("; "))
+}
+
+/// A superseded commitment's obligation lives on in its replacement, followed to the end of the
+/// chain. While that replacement is unresolved, it should apply wherever the old one did (§12).
+fn supersessions(store: &Store, p: &mut Report) {
+    let attached = crate::review::attachments(store);
+    let nodes: Vec<String> = store.own(None).into_iter().filter(|r| !r.is(OwnKind::Commitment)).map(|r| r.id.clone()).collect();
+    for c in store.own(Some(OwnKind::Commitment)) {
+        if c.state_str() != Some("superseded") {
+            continue;
+        }
+        let mut seen = HashSet::from([c.id.clone()]);
+        let first = doc::set(&c.meta, "superseded_by").map(node_ref);
+        let mut next = first.clone();
+        let holder = loop {
+            let Some(t) = next.as_deref().and_then(|x| store.get(x)).filter(|t| t.is(OwnKind::Commitment)) else { break None };
+            if !seen.insert(t.id.clone()) {
+                break None; // a cycle, reported as an error
+            }
+            if t.state_str() != Some("superseded") {
+                break Some(t);
+            }
+            next = doc::set(&t.meta, "superseded_by").map(node_ref);
+        };
+        // a concluded replacement is history, like any resolved record's links
+        let Some(t) = holder.filter(|t| !t.is_resolved()) else { continue };
+        let lost: Vec<String> = nodes
             .iter()
-            .filter(|(d, r)| *d > last && !refs.contains(&r.id) && r.id != n.id)
-            .filter_map(|(_, r)| {
-                let mut hits: Vec<String> = store.mentions(&r.text).into_iter().filter(|t| watch.contains(t)).collect();
-                hits.sort();
-                (!hits.is_empty()).then(|| format!("{} (cites {})", r.id, hits.join(", ")))
+            .filter(|n| {
+                let one = std::slice::from_ref(*n);
+                !crate::review::chains(store, c, &attached, one).is_empty() && crate::review::chains(store, t, &attached, one).is_empty()
             })
+            .cloned()
             .collect();
-        if !newer.is_empty() {
-            newer.sort();
-            let more = if newer.len() > 6 { " …" } else { "" };
-            newer.truncate(6);
+        if !lost.is_empty() {
+            let via = if first.as_deref() == Some(t.id.as_str()) { "" } else { " (through superseded_by)" };
             p.warn(
-                "stale",
-                &rel(&store.cfg.base, &n.path),
-                format!("records newer than this node's last history line cite its links: {}{more}", newer.join("; ")),
+                "superseded",
+                &rel(&store.cfg.base, &c.path),
+                format!("superseded by {}{via}, which does not apply to {}: the obligation no longer reaches them", t.id, listed(lost)),
             );
         }
     }

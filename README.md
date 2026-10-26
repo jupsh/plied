@@ -144,8 +144,8 @@ doesn't mean they support the claim.
 
 ### Authority
 
-Pointing `approval.by` (or a question's `answered_by`, or a waiver's
-`resolved_by`) at a decision only counts if that decision says it had the
+Pointing `approval.by` (or a question's `answered_by`, or the `resolved_by`
+of a waived or superseded commitment) at a decision only counts if that decision says it had the
 authority. Declare which fields hold this in the decision source:
 
 ```toml
@@ -180,7 +180,10 @@ A commitment applies to a node in four ways:
 `parent` alone never carries an obligation. Each commitment is shown with the
 chain of links through which it applies. `--gate` needs `--action` and exits
 with code 6 until every applicable commitment has a disposition for that action
-and none of them is `blocks`. Dispositions for other actions don't count. Use the gate in your run scripts. Structure can't tell whether a
+and none of them is `blocks`. Dispositions for other actions don't count. A
+commitment that names the action kinds it `governs` (from
+`checks.action_kinds`) is left out of the gate for other kinds, and `review`
+still lists it. Use the gate in your run scripts. Structure can't tell whether a
 scientific trigger has fired: that's the reviewer's judgement, recorded with
 its reason.
 
