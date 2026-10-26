@@ -4,6 +4,15 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- **A tracked research example can be replayed.** Synthetic evidence and
+  checked writes walk an interrupted experiment through recovery, comparison,
+  interpretation and replication, retaining an unresolved question at closure.
+  The example demonstrates that a review does not pin evidence revisions or
+  establish reviewer identity or independence. No format or gate rules change.
+  ([#38](https://github.com/jupsh/plied/issues/38))
+
 ## 0.7.0 — 2026-10-25
 
 - **A commitment can be superseded by another.** A decision that replaces

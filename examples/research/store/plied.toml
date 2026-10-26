@@ -1,0 +1,12 @@
+[plied]
+format = 1
+requires = ">=0.7.0"
+root = "plied"
+
+[[sources]]
+name = "evidence"
+glob = "evidence/*.md"
+id = "^E[0-9]{3}$"
+
+[checks]
+action_kinds = ["interpret", "close"]
