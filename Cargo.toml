@@ -1,6 +1,6 @@
 [package]
 name = "plied"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.89"
 description = "A git-tracked work record for teams of agents and people: a work tree, commitments, open questions, messages to whoever is on a node, and checked citations of cleared literature."

@@ -4,7 +4,7 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
-## Unreleased
+## 0.7.0 — 2026-10-25
 
 - **A commitment can be superseded by another.** A decision that replaces
   one commitment with another (new timing, new wording) used to be recorded
