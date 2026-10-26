@@ -4,6 +4,13 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- **`check` warns when a source selects no readable files.** The warning
+  names the configured source, without listing excluded paths, and never
+  blocks a write (FORMAT.md §8).
+  ([#32](https://github.com/jupsh/plied/issues/32))
+
 ## 0.7.0 — 2026-10-25
 
 - **A commitment can be superseded by another.** A decision that replaces
