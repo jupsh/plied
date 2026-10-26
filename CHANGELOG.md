@@ -4,6 +4,14 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- **The skill shows how to review controls before citing a null.** Quote the
+  plan's positive-control or manipulation-check requirement, gate a fresh
+  `cite-null` action, and record a failed control as `blocks`. The example
+  spells out that the gate does not establish that the control passed.
+  ([#39](https://github.com/jupsh/plied/issues/39))
+
 ## 0.7.0 — 2026-10-25
 
 - **A commitment can be superseded by another.** A decision that replaces

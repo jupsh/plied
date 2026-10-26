@@ -272,6 +272,8 @@ fn skill_is_generated_by_the_binary_outside_a_repo() {
         "governs=[report]",               // a commitment can be confined to action kinds
         "still lists the commitments it leaves out",
         "subject `named`",                // named stale nodes come first
+        "cite-null:run-01",              // review controls for the proposed citation
+        "not that the control passed",   // the gate does not evaluate measurements
     ] {
         assert!(skill.contains(needle), "skill is missing {needle:?}:\n{skill}");
     }
@@ -287,6 +289,38 @@ fn skill_is_generated_by_the_binary_outside_a_repo() {
 
     // no command at all is still a usage error, as before
     assert_eq!(run(&[]).status.code(), Some(2));
+}
+
+#[test]
+fn skill_control_example_blocks_a_null_until_the_control_is_reviewed() {
+    let p = Proj::new();
+    p.with_evidence();
+    p.append_config("[checks]\naction_kinds = [\"cite-null\"]\n");
+    p.evidence("D001", "", "Before citing a null, recover the known positive and verify the delivered dose");
+    p.evidence("E002", "", "The detector missed the known positive. Delivered dose was not measured.");
+    p.ok(&["new", "thread", "--title", "Experiment"]);
+    p.ok(&[
+        "new", "commitment", "--title", "Controls before citing a null", "made=D001",
+        "wording=Before citing a null, recover the known positive and verify the delivered dose", "nodes=[T001]",
+    ]);
+    assert_eq!(p.code(&["review", "T001", "--action", "cite-null:run-01", "--gate"]), Some(6));
+    let rev = p.rev("P01");
+    p.ok(&[
+        "dispose", "P01", "--action", "cite-null:run-01", "--disposition", "blocks",
+        "--because", "The detector missed the known positive; this null cannot support the claim",
+        "--ref", "E002", "--expect", &rev,
+    ]);
+    assert_eq!(p.code(&["review", "T001", "--action", "cite-null:run-01", "--gate"]), Some(6));
+    p.evidence("E003", "", "Fresh run: known positive recovered and delivered dose met the plan's criteria.");
+    let rev = p.rev("P01");
+    p.ok(&[
+        "dispose", "P01", "--action", "cite-null:run-02", "--disposition", "satisfied",
+        "--because", "Read E003 against D001: known positive recovered and delivered dose within tolerance",
+        "--ref", "E003", "--expect", &rev,
+    ]);
+    assert_eq!(p.code(&["review", "T001", "--action", "cite-null:run-02", "--gate"]), Some(0));
+    assert_eq!(p.code(&["review", "T001", "--action", "cite-null:run-01", "--gate"]), Some(6));
+    assert_eq!(p.code(&["review", "T001", "--action", "cite-null:run-03", "--gate"]), Some(6));
 }
 
 /// Run plied with stdout a pipe whose reader goes away before reading anything.
