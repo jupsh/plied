@@ -198,6 +198,9 @@ pub fn search(
     let mut notes = vec![];
     let mut hits = vec![];
     for (i, score) in ranked {
+        if hits.len() >= limit {
+            break; // a limit of 0 returns no hits, not one
+        }
         let d = &docs[i];
         let path = cfg.base.join(d["path"].as_str().unwrap_or_default());
         if policy.check_readable(&path).is_err() {
@@ -236,35 +239,29 @@ pub fn snippet(text: &str, q: &[String], width: usize) -> String {
     let flat: Vec<char> = crate::doc::squash(text).chars().collect();
     let flat_s: String = flat.iter().collect();
     let low = flat_s.to_lowercase();
-    let mut positions: Vec<usize> = vec![];
-    for t in q {
-        if let Ok(re) = Regex::new(&format!(r"\b{}\b", regex::escape(t))) {
-            for m in re.find_iter(&low) {
-                positions.push(m.start());
-            }
-        }
-    }
-    // positions are byte offsets in the lowered string; work in chars approximately
-    let low_chars: Vec<char> = low.chars().collect();
+    // char offset of each byte offset in `low`, so term positions found as bytes can be
+    // counted and windowed in chars without scanning the text once per position
+    let byte_to_char: Vec<usize> = low.char_indices().map(|(b, _)| b).collect();
+    let char_of = |byte: usize| byte_to_char.partition_point(|&b| b < byte);
     let mut char_positions: Vec<usize> = vec![];
     for t in q {
-        let needle: Vec<char> = t.chars().collect();
-        if needle.is_empty() || needle.len() > low_chars.len() {
+        if t.is_empty() {
             continue;
         }
-        for i in 0..=(low_chars.len() - needle.len()) {
-            if low_chars[i..i + needle.len()] == needle[..] {
-                char_positions.push(i);
-            }
+        for (b, _) in low.match_indices(t.as_str()) {
+            char_positions.push(char_of(b));
         }
     }
-    let _ = positions;
-    char_positions.sort();
-    let (mut best, mut best_n) = (0usize, -1i64);
-    for &p in &char_positions {
-        let n = char_positions.iter().filter(|&&o| p <= o && o < p + width).count() as i64;
+    char_positions.sort_unstable();
+    // the window of `width` chars holding the most term occurrences (two pointers)
+    let (mut best, mut best_n, mut lo) = (0usize, -1i64, 0usize);
+    for (hi, &p) in char_positions.iter().enumerate() {
+        while p >= char_positions[lo] + width {
+            lo += 1;
+        }
+        let n = (hi - lo + 1) as i64;
         if n > best_n {
-            best = p;
+            best = char_positions[lo];
             best_n = n;
         }
     }

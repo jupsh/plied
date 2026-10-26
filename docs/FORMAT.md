@@ -782,22 +782,22 @@ command:
 | `find` | records without `body` and `text` |
 | `backlinks` | `[{id, how}]`, as in `show` |
 | `tree` | `[{id, title, status, rev, children: [...]}]`; a thread met a second time in a `parent` cycle is `{id, cycle: true}` |
-| `frontier` | `{queues: {actor: [{id, next, title, rev}]}, unscheduled: [{id, actor, title, rev}], open_questions: [{id, title, rev}], dates: [{id, field, date, passed}]}`; `unscheduled` lists the open threads without `next`, so in no queue, in id order (`actor` null when unset; with `--actor`, only that actor's; added in 0.4.0); `dates` lists every date field on an unresolved record, earliest first, and `passed` says whether it asks for attention today |
+| `frontier` | `{queues: {actor: [{id, next, title, rev}]}, unscheduled: [{id, actor, title, rev}], open_questions: [{id, title, rev}], dates: [{id, field, date, passed}]}`; `unscheduled` lists the open threads without `next`, so in no queue, in id order (`actor` null when unset; with `--actor`, only that actor's; added in 0.4.0); `dates` lists every date field on an unresolved record, earliest first, and `passed` says whether it asks for attention today. With `--actor`, `open_questions` and `dates` are empty: they are no one actor's, as the text output already showed only that actor's work |
 | `view` | `{path}`; with `--print` `{path, text}`; with `--check` `{path, current}`, exit 1 when not current |
 | `recover` | `{recovered: "finished", "undone" or null, files}` |
 | `gc` | `{removed}` |
 | `check` | `{diagnostics, errors, warnings, records, linked, config}` |
-| `claim` | a claim (§6), plus `commitments` as in `show`, empty unless the node is a plied thread or question (added in 0.6.0). Without `--json`, `claim` lists them too |
+| `claim` | a claim (§6), plus `commitments` as in `show`, empty unless the node is a plied thread or question (added in 0.6.0). Without `--json`, `claim` lists them too. `--ttl` is a positive number of minutes; 0 or absent uses `messages.lease_minutes`, and a negative value is a usage error (exit 2) |
 | `release` | `{released}` |
 | `who` | claims, each with `expires` |
 | `send` | `{event, recorded_now}`; `recorded_now` is false for a retry (§5) |
 | `subscribe`, `unsubscribe` | `{event}` |
 | `inbox` | `{messages, marked_read}`; each message carries `delivered`, `read`, `acked` (times or null) |
 | `ack` | `{acknowledged}` |
-| `messages` | the node's events, in log order |
+| `messages` | the node's events, in log order. The node must name a record, as for `send`; an unknown node is an error (exit 1), never an empty conversation. A node is a record id, never a path: a log is only ever the one file `<root>/messages/<node>.jsonl` for that id |
 | `review` | `{commitments: [{id, rev, state, wording, chains, reviews}], gate}`; `gate` is null without `--gate`, else `{action, passed, reasons}` |
 | `index` | `{records, pages, policy}` |
-| `search`, `lit search` | `[{key, kind, path, score, snippet, stale, ocr}]` |
+| `search`, `lit search` | `[{key, kind, path, score, snippet, stale, ocr}]`; `-n` caps how many are returned, and `-n 0` returns none |
 | `lit list` | `[{id, file, pages}]` |
 | `lit page` | `{paper, page, text, ocr}`; with `--image` `{paper, page, image}` |
 | `lit extract` | `{paper, pages}` |

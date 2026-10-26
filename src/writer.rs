@@ -433,6 +433,27 @@ fn apply_at(cur: &mut Map, parts: &[String], key: &str, op: &str, val: Option<No
 pub fn unified_diff(old: &str, new: &str, from: &str, to: &str) -> String {
     let a: Vec<&str> = old.lines().collect();
     let b: Vec<&str> = new.lines().collect();
+    // The LCS table is quadratic in the line counts: two long records (a body can hold
+    // tens of thousands of lines) would need gigabytes for a conflict message. Past a
+    // generous size, show the common head and tail and the whole changed middle instead.
+    if (a.len() as u128) * (b.len() as u128) > 4_000_000 {
+        let mut out = format!("--- {from}\n+++ {to}\n");
+        let head = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+        let tail = a[head..].iter().rev().zip(b[head..].iter().rev()).take_while(|(x, y)| x == y).count();
+        for l in &a[..head] {
+            out += &format!(" {l}\n");
+        }
+        for l in &a[head..a.len() - tail] {
+            out += &format!("-{l}\n");
+        }
+        for l in &b[head..b.len() - tail] {
+            out += &format!("+{l}\n");
+        }
+        for l in &a[a.len() - tail..] {
+            out += &format!(" {l}\n");
+        }
+        return out;
+    }
     // LCS table
     let (n, m) = (a.len(), b.len());
     let mut dp = vec![vec![0usize; m + 1]; n + 1];
@@ -465,4 +486,26 @@ pub fn unified_diff(old: &str, new: &str, from: &str, to: &str) -> String {
         j += 1;
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_small_diff_is_a_line_diff() {
+        let d = unified_diff("a\nb\nc\n", "a\nx\nc\n", "old", "new");
+        assert!(d.contains("-b\n") && d.contains("+x\n") && d.contains(" a\n"), "{d}");
+    }
+
+    #[test]
+    fn a_huge_diff_does_not_build_the_quadratic_table() {
+        // 3_000 x 3_000 lines is past the cap: the changed middle is shown whole,
+        // the common head and tail as context, without an LCS table
+        let old: String = (0..3_000).map(|i| format!("line {i}\n")).collect();
+        let new = old.replace("line 1500\n", "changed 1500\n");
+        let d = unified_diff(&old, &new, "old", "new");
+        assert!(d.contains("-line 1500\n") && d.contains("+changed 1500\n"), "{}", &d[..d.len().min(200)]);
+        assert!(d.contains(" line 0\n") && d.contains(" line 2999\n"), "common head and tail are context");
+    }
 }

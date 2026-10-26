@@ -27,7 +27,13 @@ pub fn claude(stdin_text: &str, debug: bool) -> Option<String> {
 
 fn run(stdin_text: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let data: Value = serde_json::from_str(if stdin_text.trim().is_empty() { "{}" } else { stdin_text })?;
-    let Some(session) = data.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+    // a session id names one state file under `sessions/`; one carrying a path separator
+    // (or `.`/`..`) would name some other file, so it is not a session plied tracks
+    let Some(session) = data
+        .get("session_id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !s.contains(['/', '\\']))
+    else {
         return Ok(None);
     };
     let session = session.to_string();

@@ -12,6 +12,35 @@ fn qerr(msg: impl Into<String>) -> Fail {
     Fail::query(msg)
 }
 
+thread_local! {
+    /// `$regex` patterns compiled once per query, not once per record examined.
+    static REGEX_CACHE: std::cell::RefCell<std::collections::HashMap<String, Option<std::rc::Rc<regex::Regex>>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn compiled_regex(pat: &str) -> Result<std::rc::Rc<regex::Regex>, String> {
+    REGEX_CACHE.with_borrow_mut(|c| {
+        if c.len() > 128 {
+            c.clear();
+        }
+        match c.get(pat) {
+            Some(Some(re)) => Ok(re.clone()),
+            Some(None) => Err(format!("invalid regex {pat:?}")),
+            None => match regex::Regex::new(pat) {
+                Ok(re) => {
+                    let re = std::rc::Rc::new(re);
+                    c.insert(pat.to_string(), Some(re.clone()));
+                    Ok(re)
+                }
+                Err(e) => {
+                    c.insert(pat.to_string(), None);
+                    Err(e.to_string())
+                }
+            },
+        }
+    })
+}
+
 fn get<'a>(doc: &'a Value, key: &str) -> Option<&'a Value> {
     let mut cur = doc;
     for p in key.split('.') {
@@ -114,7 +143,7 @@ fn match_value(v: Option<&Value>, cond: &Value) -> Res<bool> {
                 let case_i = ops.get("$options").and_then(Value::as_str).is_some_and(|o| o.contains('i'));
                 let pat = text_of(arg);
                 let pat = if case_i { format!("(?i){pat}") } else { pat };
-                let re = regex::Regex::new(&pat).map_err(|e| qerr(format!("$regex {arg}: {e}")))?;
+                let re = compiled_regex(&pat).map_err(|e| qerr(format!("$regex {arg}: {e}")))?;
                 let hit = match v {
                     Some(Value::Array(items)) => items.iter().any(|x| re.is_match(&text_of(x))),
                     Some(v) => re.is_match(&text_of(v)),

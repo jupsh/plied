@@ -375,6 +375,34 @@ fn expect_takes_a_revision_prefix_of_eight_or_more() {
 }
 
 #[test]
+fn messages_names_a_record_or_fails() {
+    let p = two_threads();
+    // `messages` shows a node's conversation: a node that names no record is an
+    // error (exit 1), as `send` and `subscribe` already report, never an empty log
+    assert_eq!(p.code(&["messages", "T999"]), Some(1));
+    assert_eq!(p.code(&["messages", "T001"]), Some(0), "a real node with no messages is fine");
+}
+
+#[test]
+fn frontier_with_an_actor_scopes_every_section_in_json() {
+    let p = two_threads();
+    p.ok(&["new", "question", "--title", "Whose?", "raised=T001"]);
+    assert!(p.set("T001", &["actor=bob", "due=2000-01-01"]).status.success());
+    assert!(p.set("T002", &["actor=alice", "next=1"]).status.success());
+    // text frontier with --actor already shows only that actor's work; --json must agree:
+    // open questions and dates are no one actor's, so they are empty, not everyone's
+    let v = envelope(&p.run(&["frontier", "--actor", "bob", "--json"]));
+    assert_eq!(v["result"]["open_questions"], serde_json::json!([]), "{v}");
+    assert_eq!(v["result"]["dates"], serde_json::json!([]), "{v}");
+    let unscheduled = v["result"]["unscheduled"].as_array().unwrap();
+    assert!(unscheduled.iter().all(|r| r["actor"] == "bob"), "{v}");
+    // without --actor both sections are present as before
+    let v = envelope(&p.run(&["frontier", "--json"]));
+    assert_eq!(v["result"]["open_questions"].as_array().unwrap().len(), 1, "{v}");
+    assert!(!v["result"]["dates"].as_array().unwrap().is_empty(), "{v}");
+}
+
+#[test]
 fn frontier_lists_open_threads_in_no_queue() {
     let p = two_threads();
     p.ok(&["new", "thread", "--title", "Third"]);

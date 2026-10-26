@@ -1017,8 +1017,11 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, json: bool) -> Res<i32> {
             );
         }
         let unsched: Vec<Value> = unscheduled.iter().map(|r| json!({"id": r.id, "actor": doc::text(&r.meta, "actor"), "title": r.title(), "rev": r.rev})).collect();
-        let open: Vec<Value> = qs.iter().map(|q| json!({"id": q.id, "title": q.title(), "rev": q.rev})).collect();
-        let dates: Vec<Value> = dates.iter().map(|(r, f, d, passed)| json!({"id": r.id, "field": f, "date": d.to_string(), "passed": passed})).collect();
+        // with --actor the text output shows only that actor's work (below); open questions and
+        // dates are no one actor's, so under --json they are empty too, not everyone's
+        let open: Vec<Value> = if actor.is_some() { vec![] } else { qs.iter().map(|q| json!({"id": q.id, "title": q.title(), "rev": q.rev})).collect() };
+        let dates: Vec<Value> =
+            if actor.is_some() { vec![] } else { dates.iter().map(|(r, f, d, passed)| json!({"id": r.id, "field": f, "date": d.to_string(), "passed": passed})).collect() };
         out_json(&json!({"queues": obj, "unscheduled": unsched, "open_questions": open, "dates": dates}));
         return Ok(0);
     }
@@ -1194,6 +1197,11 @@ fn cmd_inbox(ctx: &Ctx, all: bool, peek: bool, json: bool, who_args: &WhoArgs) -
 }
 
 fn cmd_messages(ctx: &Ctx, node: &str, json: bool) -> Res<i32> {
+    // like `send` and `subscribe`: a conversation belongs to a record, and an unknown
+    // (or path-shaped) node is an error, not an empty conversation
+    if ctx.store()?.get(node).is_none() {
+        return Err(Fail::new(format!("no record {node}")));
+    }
     let evs = ctx.messages().events(node);
     if json {
         out_json(&Value::Array(evs.into_iter().map(Value::Object).collect()));

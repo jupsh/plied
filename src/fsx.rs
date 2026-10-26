@@ -12,8 +12,13 @@ use sha2::{Digest, Sha256};
 use crate::error::{Fail, IoContext, Res};
 
 pub fn sha(data: &[u8]) -> String {
+    use std::fmt::Write as _;
     let d = Sha256::digest(data);
-    d.iter().map(|b| format!("{b:02x}")).collect()
+    let mut out = String::with_capacity(d.len() * 2);
+    for b in d {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }
 
 /// The real path: symlinks followed as far as the path exists, `..` applied, never failing.

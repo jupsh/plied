@@ -165,8 +165,18 @@ impl<'a> Messages<'a> {
         self.dir.join(format!("{node}.jsonl"))
     }
 
+    /// The log for `node`, when `node` names one file inside the messages directory. A node is a
+    /// record id, never a path: anything with a separator in it (or `.`/`..`) is not a log plied
+    /// may read or append to, however it arrived (a command argument, a crafted event's `node`).
+    fn log_path(&self, node: &str) -> Option<PathBuf> {
+        if node.is_empty() || node == "." || node == ".." || node.contains(['/', '\\']) {
+            return None;
+        }
+        Some(self.path(node))
+    }
+
     pub fn events(&self, node: &str) -> Vec<Meta> {
-        let p = self.path(node);
+        let Some(p) = self.log_path(node) else { return vec![] };
         if !self.policy.readable(&p) {
             return vec![];
         }
@@ -209,7 +219,9 @@ impl<'a> Messages<'a> {
     /// Append events to a node's log; returns those actually written (duplicates skipped).
     pub fn append(&self, node: &str, events: Vec<Meta>) -> Res<Vec<Meta>> {
         let _g = self.lock.lock()?;
-        let p = self.path(node);
+        let Some(p) = self.log_path(node) else {
+            return Err(Fail::policy(format!("{node:?} is not a node id")));
+        };
         self.policy.check_readable(&p)?; // appending means reading the log first
         std::fs::create_dir_all(&self.dir).at(&self.dir)?;
         let mut data = if p.exists() { std::fs::read(&p).at(&p)? } else { vec![] };
@@ -323,6 +335,9 @@ impl<'a> Messages<'a> {
     }
 
     pub fn claim(&self, node: &str, agent: &str, session: Option<&str>, ttl_min: Option<i64>) -> Res<Claim> {
+        if ttl_min.is_some_and(|t| t < 0) {
+            return Err(Fail::code(crate::error::EXIT_USAGE, "claim --ttl must be a positive number of minutes (0 or absent uses messages.lease_minutes)"));
+        }
         let ttl = ttl_min.filter(|t| *t != 0).unwrap_or(self.cfg.lease_minutes);
         let _g = self.lock.lock()?;
         let mut cs = self.claims(true);

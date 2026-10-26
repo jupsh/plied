@@ -66,6 +66,10 @@ pub fn applicable<'s>(store: &'s Store, nodes: &[String], action: Option<&str>) 
             }
         }
     }
+    // the graph walks depend only on the nodes named, never on the commitment: walk each
+    // node once, not once per commitment (this ran `deps`/`ancestors` per commitment)
+    type NodeWalk = (String, Vec<(String, Vec<String>)>, Vec<String>);
+    let walks: Vec<NodeWalk> = nodes.iter().map(|n| (n.clone(), deps(store, n), ancestors(store, n))).collect();
     let mut out = vec![];
     for c in commitments {
         // only a resolved commitment stops applying: a missing or malformed state (an error in check)
@@ -82,16 +86,16 @@ pub fn applicable<'s>(store: &'s Store, nodes: &[String], action: Option<&str>) 
         if scope == Some(Applies::Project) {
             chains.push("project-wide".into());
         }
-        for n in nodes {
-            for (m, path) in deps(store, n) {
-                if m == c.id && path.len() > 1 {
+        for (n, deps, ancestors) in &walks {
+            for (m, path) in deps {
+                if *m == c.id && path.len() > 1 {
                     chains.push(path.join(" "));
-                } else if att.contains(&m) {
+                } else if att.contains(m) {
                     chains.push(if path.len() > 1 { format!("{} ← {}", path.join(" "), c.id) } else { format!("{n} ← {} (attached)", c.id) });
                 }
             }
             if scope == Some(Applies::Subtree) {
-                for a in ancestors(store, n).into_iter().filter(|a| att.contains(a)) {
+                for a in ancestors.iter().filter(|a| att.contains(a.as_str())) {
                     chains.push(format!("{n} is under {a} ← {} (applies: subtree)", c.id));
                 }
             }
