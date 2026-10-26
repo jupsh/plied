@@ -267,6 +267,11 @@ fn skill_is_generated_by_the_binary_outside_a_repo() {
         "plied review <node>` (no `--gate`)", // before a step of an inherited plan
         "twenty reads",              // stale review in a script: one read per node
         "lists the commitments that apply", // claim shows what a node obliges
+        "state=superseded superseded_by=", // a replaced commitment is superseded, not waived
+        "one commitment per clause",
+        "governs=[report]",               // a commitment can be confined to action kinds
+        "still lists the commitments it leaves out",
+        "subject `named`",                // named stale nodes come first
     ] {
         assert!(skill.contains(needle), "skill is missing {needle:?}:\n{skill}");
     }

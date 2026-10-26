@@ -931,16 +931,31 @@ fn node_commitments<'s>(st: &'s Store, r: &Record) -> Vec<review::Applicable<'s>
 fn commitments_json(apps: &[review::Applicable]) -> Value {
     Value::Array(
         apps.iter()
-            .map(|a| json!({"id": a.commitment.id, "rev": a.commitment.rev, "state": a.commitment.state_str(), "title": a.commitment.title(), "chains": a.chains}))
+            .map(|a| json!({"id": a.commitment.id, "rev": a.commitment.rev, "state": a.commitment.state_str(), "title": a.commitment.title(), "chains": a.chains, "governs": governs_json(a.commitment)}))
             .collect(),
     )
+}
+
+/// A commitment's `governs` list; None when it governs every action.
+fn governs_list(c: &Record) -> Option<Vec<String>> {
+    c.meta.get("governs").map(|v| v.items().iter().filter_map(Node::scalar).collect())
+}
+
+fn governs_json(c: &Record) -> Value {
+    json!(governs_list(c))
+}
+
+/// " (governs: run, freeze)", or nothing when the commitment governs every action.
+fn governs_text(c: &Record) -> String {
+    governs_list(c).map(|k| format!(" (governs: {})", k.join(", "))).unwrap_or_default()
 }
 
 fn commitment_lines(apps: &[review::Applicable]) -> Vec<String> {
     apps.iter()
         .map(|a| {
             let state = a.commitment.state_str().unwrap_or_default();
-            format!("  {} [{state}] {} — via {}", a.commitment.id, doc::take(&a.commitment.title(), 70), a.chains.first().cloned().unwrap_or_default())
+            let governs = governs_text(a.commitment);
+            format!("  {} [{state}] {}{governs} — via {}", a.commitment.id, doc::take(&a.commitment.title(), 70), a.chains.first().cloned().unwrap_or_default())
         })
         .collect()
 }
@@ -1421,16 +1436,20 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
                     "wording": doc::text(&x.commitment.meta, "wording"),
                     "chains": x.chains,
                     "reviews": x.reviews.iter().map(|rv| Value::Object(doc::map_to_json(rv))).collect::<Vec<_>>(),
+                    "governs": governs_json(x.commitment),
+                    "governs_action": x.governs_action,
                 })
             })
             .collect();
         let gate_v = reasons.as_ref().map(|r| json!({"action": action, "passed": r.is_empty(), "reasons": r}));
         out_json(&json!({"commitments": commitments, "gate": gate_v}));
     } else {
-        if items.is_empty() {
-            outln!("no open commitment applies to {}", nodes.join(", "));
+        let (governed, others): (Vec<&review::Applicable>, Vec<&review::Applicable>) = items.iter().partition(|x| x.governs_action);
+        if governed.is_empty() {
+            let gov = if others.is_empty() { "" } else { " and governs this action" };
+            outln!("no open commitment applies to {}{gov}", nodes.join(", "));
         }
-        for x in &items {
+        for x in &governed {
             let c = x.commitment;
             outln!("{} [{}] rev {}  {}", c.id, c.state_str().unwrap_or_default(), &c.rev[..12.min(c.rev.len())], c.title());
             outln!("  applies via: {}", x.chains.join("; "));
@@ -1454,6 +1473,13 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
                 outln!("  → record: plied dispose {} --action {} --disposition … --because \"…\" --expect {}", c.id, serde_json::to_string(a).unwrap_or_default(), &c.rev[..12.min(c.rev.len())]);
             }
             outln!();
+        }
+        if let (Some(a), false) = (action, others.is_empty()) {
+            outln!("Applying, but not governing {} actions, so the gate leaves them out:", config::Config::action_kind(a));
+            for x in &others {
+                let c = x.commitment;
+                outln!("  {} [{}] {}{}", c.id, c.state_str().unwrap_or_default(), c.title(), governs_text(c));
+            }
         }
     }
     if let Some(reasons) = reasons {
