@@ -11,6 +11,15 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{Fail, IoContext, Res};
 
+/// Whether a value can name only one local filename on this platform.
+pub fn single_file_component(value: &str) -> bool {
+    if value.contains(['/', '\\']) {
+        return false;
+    }
+    let mut parts = std::path::Path::new(value).components();
+    matches!(parts.next(), Some(std::path::Component::Normal(_))) && parts.next().is_none()
+}
+
 pub fn sha(data: &[u8]) -> String {
     use std::fmt::Write as _;
     let d = Sha256::digest(data);
@@ -513,6 +522,16 @@ mod tests {
             fs::write(&e.tmp, data).unwrap();
         }
         entries
+    }
+
+    #[test]
+    fn filename_component_rejects_paths() {
+        assert!(single_file_component("T001"));
+        for path in ["", ".", "..", "a/b", "a\\\\b"] {
+            assert!(!single_file_component(path), "{path:?}");
+        }
+        #[cfg(windows)]
+        assert!(!single_file_component("C:escape"));
     }
 
     #[test]

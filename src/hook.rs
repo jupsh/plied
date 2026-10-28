@@ -32,7 +32,7 @@ fn run(stdin_text: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let Some(session) = data
         .get("session_id")
         .and_then(Value::as_str)
-        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !s.contains(['/', '\\']))
+        .filter(|s| fsx::single_file_component(s))
     else {
         return Ok(None);
     };

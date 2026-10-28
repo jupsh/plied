@@ -169,7 +169,7 @@ impl<'a> Messages<'a> {
     /// record id, never a path: anything with a separator in it (or `.`/`..`) is not a log plied
     /// may read or append to, however it arrived (a command argument, a crafted event's `node`).
     fn log_path(&self, node: &str) -> Option<PathBuf> {
-        if node.is_empty() || node == "." || node == ".." || node.contains(['/', '\\']) {
+        if !fsx::single_file_component(node) {
             return None;
         }
         Some(self.path(node))
