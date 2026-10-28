@@ -166,6 +166,9 @@ pub fn gate(items: &[Applicable], action: &str) -> Vec<String> {
             Some(rv) if doc::str_of(rv, "disposition").and_then(Disposition::parse) == Some(Disposition::Blocks) => {
                 out.push(format!("{}: disposition 'blocks' — {}", a.commitment.id, doc::text(rv, "because").unwrap_or_default()))
             }
+            Some(rv) if doc::str_of(rv, "disposition").and_then(Disposition::parse).is_none() => {
+                out.push(format!("{}: latest review for {action} has a missing or invalid disposition", a.commitment.id))
+            }
             Some(_) => {}
         }
     }

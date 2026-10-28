@@ -230,7 +230,7 @@ enum Cmd {
         /// the action's name, e.g. run:fit-20261024
         #[arg(long)]
         action: Option<String>,
-        /// exit 6 unless every applicable commitment has a non-blocking disposition for --action
+        /// requires nodes and --action; exit 6 unless each applicable commitment has a valid non-blocking disposition
         #[arg(long)]
         gate: bool,
     },
@@ -1423,6 +1423,9 @@ fn cmd_search(ctx: &Ctx, query_text: &str, n: usize, kind: Option<&str>, paper: 
 }
 
 fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, json: bool) -> Res<i32> {
+    if gate && nodes.is_empty() {
+        return Err(Fail::code(EXIT_USAGE, "--gate needs at least one node"));
+    }
     if gate && action.is_none() {
         return Err(Fail::code(EXIT_USAGE, "--gate needs --action: a disposition counts only for the action it was recorded for"));
     }

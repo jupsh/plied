@@ -88,7 +88,19 @@ impl<'a> Writer<'a> {
         let overrides: records::Overrides = changes.iter().map(|c| (c.path.clone(), Some(c.data.clone()))).collect();
         let proposed = Store::load(cfg, Some(&overrides), policy)?;
         let after = check::run(&proposed, &inputs);
-        let mut new: Vec<&check::Problem> = after.iter().filter(|p| p.level == Level::Error && !before.contains(&p.identity())).collect();
+        let mut new: Vec<check::Problem> = after.iter().filter(|p| p.level == Level::Error && !before.contains(&p.identity())).cloned().collect();
+        for ch in &changes {
+            if let (Some(old), Some(updated)) = (store.get(&ch.rid), proposed.get(&ch.rid)) {
+                for field in ["reviews", "scanned"] {
+                    let previous = old.meta.get(field).map(Node::items).unwrap_or_default();
+                    let next = updated.meta.get(field).map(Node::items).unwrap_or_default();
+                    if !next.starts_with(previous) {
+                        new.push(check::Problem::error_on("append-only", &self.repo.rel(&ch.path), field,
+                            format!("{field} is append-only: preserve existing entries and their order")));
+                    }
+                }
+            }
+        }
         new.sort();
         if !new.is_empty() {
             return Err(Fail::code(

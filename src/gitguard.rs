@@ -35,11 +35,15 @@ pub fn check_staged(repo: &Repo, written: &HashSet<String>, merging: bool) -> Re
     } else {
         EMPTY_TREE.to_string()
     };
-    let out = git_text(&repo.here, &["diff", "--cached", "--name-status", "--no-renames", &against])?;
+    let out = git_bytes(&repo.here, &["diff", "--cached", "--name-status", "-z", "--no-renames", &against])?;
+    let fields = nul_fields(&out)?;
+    let (pairs, remainder) = fields.as_chunks::<2>();
+    if !remainder.is_empty() {
+        return Err("git diff returned an incomplete status/path pair".into());
+    }
     let mut problems = vec![];
-    for line in out.lines() {
-        let mut it = line.splitn(2, '\t');
-        let (Some(status), Some(path)) = (it.next(), it.next()) else { continue };
+    for pair in pairs {
+        let (status, path) = (pair[0], pair[1]);
         if !managed(&repo.cfg, path) {
             continue;
         }
@@ -65,12 +69,20 @@ pub fn check_staged(repo: &Repo, written: &HashSet<String>, merging: bool) -> Re
 
 pub fn check_range(repo: &Repo, base: &str, head: &str) -> Result<Vec<String>, String> {
     let mb = git_text(&repo.here, &["merge-base", base, head])?.trim().to_string();
-    let out = git_text(&repo.here, &["diff", "--name-only", "--no-renames", &mb, head])?;
-    Ok(out
-        .lines()
+    let out = git_bytes(&repo.here, &["diff", "--name-only", "-z", "--no-renames", &mb, head])?;
+    Ok(nul_fields(&out)?
+        .into_iter()
         .filter(|p| managed(&repo.cfg, p))
         .map(|p| format!("{p}: changed on {head} since {}; code branches must not change record files", &mb[..mb.len().min(10)]))
         .collect())
+}
+
+/// `-z` disables Git's quoting, including octal escapes and embedded tabs/newlines.
+/// An undecodable filename fails the guard rather than silently skipping a managed path.
+fn nul_fields(bytes: &[u8]) -> Result<Vec<&str>, String> {
+    bytes.split(|b| *b == 0).filter(|b| !b.is_empty())
+        .map(|b| std::str::from_utf8(b).map_err(|_| "git diff returned a non-UTF-8 filename; cannot validate managed paths".into()))
+        .collect()
 }
 
 pub fn check_merge(repo: &Repo, written: &HashSet<String>) -> Result<Vec<String>, String> {
