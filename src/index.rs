@@ -109,7 +109,7 @@ pub fn build(cfg: &Config, policy: &Policy, runtime: &std::path::Path, store: Op
         for paper in lib.papers.values() {
             for page in lib.pages(paper) {
                 let pp = lib.page_path(paper, page);
-                if !policy.literature_readable(&pp) {
+                if !lib.page_readable(paper, &pp) {
                     continue;
                 }
                 let Ok(data) = std::fs::read(&pp) else { continue };
@@ -197,21 +197,25 @@ pub fn search(
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     let mut notes = vec![];
     let mut hits = vec![];
+    let library = Library::new(cfg, policy, runtime).ok();
     for (i, score) in ranked {
         if hits.len() >= limit {
             break; // a limit of 0 returns no hits, not one
         }
         let d = &docs[i];
         let path = cfg.base.join(d["path"].as_str().unwrap_or_default());
-        if policy.check_readable(&path).is_err() {
-            continue;
-        }
+        let ok = if d["kind"].as_str() == Some("record") {
+            policy.searchable(&path)
+        } else {
+            library.as_ref().is_some_and(|lib| {
+                d["paper"].as_str().and_then(|id| lib.papers.get(id)).is_some_and(|p| {
+                    d["page"].as_i64().is_some_and(|page| path == lib.page_path(p, page) && lib.page_readable(p, &path))
+                })
+            })
+        };
+        if !ok { continue; }
         if !path.exists() {
             notes.push(format!("{} was indexed but no longer exists", d["path"].as_str().unwrap_or_default()));
-            continue;
-        }
-        let ok = if d["kind"].as_str() == Some("record") { policy.searchable(&path) } else { policy.literature_readable(&path) };
-        if !ok {
             continue;
         }
         let data = std::fs::read(&path)?;

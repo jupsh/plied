@@ -79,6 +79,7 @@ impl<'a> Writer<'a> {
         let store = Store::load(cfg, None, policy)?;
         let changes = build(&store)?;
         for ch in &changes {
+            self.check_destination(policy, &ch.path, false)?;
             self.check_expected(&ch.path, &ch.expected, &ch.rid, &store)?;
         }
         let inputs = check::Inputs { library, messages: None, view: None, warnings: false };
@@ -87,6 +88,11 @@ impl<'a> Writer<'a> {
         let before: std::collections::HashSet<_> = before.iter().filter(|p| p.level == Level::Error).map(|p| p.identity()).collect();
         let overrides: records::Overrides = changes.iter().map(|c| (c.path.clone(), Some(c.data.clone()))).collect();
         let proposed = Store::load(cfg, Some(&overrides), policy)?;
+        for ch in &changes {
+            if proposed.get(&ch.rid).is_none_or(|r| fsx::resolve(&r.path) != fsx::resolve(&ch.path) || r.rev != fsx::sha(&ch.data)) {
+                return Err(Fail::policy(format!("{} did not enter the proposed store for validation", ch.rid)));
+            }
+        }
         let after = check::run(&proposed, &inputs);
         let mut new: Vec<check::Problem> = after.iter().filter(|p| p.level == Level::Error && !before.contains(&p.identity())).cloned().collect();
         for ch in &changes {
@@ -110,6 +116,7 @@ impl<'a> Writer<'a> {
             .with_detail(serde_json::json!({ "diagnostics": new })));
         }
         let mut files: Vec<(PathBuf, Vec<u8>)> = changes.iter().map(|c| (c.path.clone(), c.data.clone())).collect();
+        self.check_destination(policy, &cfg.view_path(), true)?;
         files.extend(self.view_file(&proposed));
         fsx::commit_files(&self.repo.runtime, &files)?;
         // the write is done: failing to prune the cache is worth a note, never a failure
@@ -117,6 +124,22 @@ impl<'a> Writer<'a> {
             crate::notes::note(format!("could not prune the revision cache: {}", e.msg));
         }
         Ok(changes.iter().map(|c| (c.rid.clone(), fsx::sha(&c.data))).collect())
+    }
+
+    /// Check both the alias policy and resolved destination before reading or committing bytes.
+    fn check_destination(&self, policy: &Policy, path: &std::path::Path, view: bool) -> Res<()> {
+        let real = policy.check_readable(path)?;
+        let cfg = &self.repo.cfg;
+        let root = fsx::resolve(&cfg.base.join(&cfg.root));
+        let allowed = real.starts_with(&root) && if view {
+            real.parent() == Some(root.as_path())
+        } else {
+            OwnKind::KINDS.iter().any(|kind| real.parent() == Some(fsx::resolve(&cfg.kind_dir(*kind)).as_path()))
+        };
+        if !allowed {
+            return Err(Fail::policy("write destination resolves outside its configured record directory"));
+        }
+        Ok(())
     }
 
     /// Remove cached revision content past its retention, or all of it (`plied gc`).
@@ -189,6 +212,7 @@ impl<'a> Writer<'a> {
         let Some(store) = store else {
             return Err(Fail::new("internal: regenerate needs a store"));
         };
+        self.check_destination(&Policy::new(&self.repo.cfg)?, &self.repo.cfg.view_path(), true)?;
         let files: Vec<_> = self.view_file(store).into_iter().collect();
         fsx::commit_files(&self.repo.runtime, &files)
     }

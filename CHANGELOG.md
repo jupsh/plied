@@ -6,6 +6,15 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Check both aliases and targets when loading own records. Reject escaping
+  record directories, unsafe ID prefixes and write destinations; ensure each
+  proposed record entered validation. Read generated literature pages from
+  the default Git cache or an external runtime, retaining source seals and
+  blocking arbitrary Git metadata and cache symlink escapes.
+  ([#56](https://github.com/jupsh/plied/issues/56),
+  [#57](https://github.com/jupsh/plied/issues/57),
+  [#58](https://github.com/jupsh/plied/issues/58))
+
 - Git guards check Unicode and embedded whitespace paths; checked writes
   preserve review and scan history; review gates require a node and reject
   missing or malformed dispositions.
