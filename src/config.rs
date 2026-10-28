@@ -235,6 +235,21 @@ fn err(msg: impl Into<String>) -> Fail {
     Fail::new(msg)
 }
 
+/// Use the same portable containment rules on every host, including Windows drive paths.
+fn relative_directory(value: &str, field: &str) -> Res<()> {
+    if value.is_empty() || value.starts_with(['/', '\\']) || value.contains(':')
+        || value.split(['/', '\\']).any(|part| part == "..")
+        || value.chars().any(|c| c == '\0')
+        || Path::new(value).is_absolute()
+    {
+        return Err(err(format!("{field} must be a relative path inside its parent directory")));
+    }
+    if value.contains('\\') {
+        return Err(err(format!("{field} must use / path separators")));
+    }
+    Ok(())
+}
+
 fn got(v: &T) -> String {
     v.to_string()
 }
@@ -442,9 +457,14 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
         let o = get_table(&ids, name, "ids.")?;
         let wh = format!("ids.{name}.");
         let prefix = get_str(&o, "prefix", Some(p), &wh)?.unwrap_or_default();
+        if prefix.is_empty() || prefix.chars().any(|c| c.is_control() || "<>:\"/\\|?*".contains(c)) || prefix == "." || prefix == ".." {
+            return Err(err(format!("{wh}prefix must be a nonempty portable filename component")));
+        }
+        let dir = get_str(&o, "dir", Some(d), &wh)?.unwrap_or_default();
+        relative_directory(&dir, &format!("{wh}dir"))?;
         let width = get_positive(&o, "width", w, &wh)? as usize;
         let id_re = Regex::new(&format!(r"^{}\d{{{width},}}$", regex::escape(&prefix))).map_err(|e| err(e.to_string()))?;
-        kinds.push(Kind { kind, dir: get_str(&o, "dir", Some(d), &wh)?.unwrap_or_default(), prefix, width, id_re });
+        kinds.push(Kind { kind, dir, prefix, width, id_re });
     }
     let mut prefixes: Vec<&str> = kinds.iter().map(|k| k.prefix.as_str()).collect();
     prefixes.sort();
@@ -548,9 +568,7 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
         Some(v) => return Err(err(format!("runtime.revision_days: expected a whole number of days (0 or more), got {}", got(v)))),
     };
     let root = get_str(&top, "root", Some("plied"), "plied.")?.unwrap_or_default();
-    if root.starts_with('/') || Path::new(&root).components().any(|c| matches!(c, std::path::Component::ParentDir)) {
-        return Err(err("plied.root must be a relative path inside the repository"));
-    }
+    relative_directory(&root, "plied.root")?;
     let phrases =
         get_strs(&checks, "commitment_phrases", Some(DEFAULT_PHRASES.iter().map(|s| s.to_string()).collect()), "checks.")?.unwrap_or_default();
     for p in &phrases {
@@ -563,6 +581,16 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
         return Err(err(format!("checks.commitments_since: expected a date (YYYY-MM-DD), got {s:?}")));
     }
     let base = base.map(Path::to_path_buf).unwrap_or_else(|| path.parent().unwrap_or(Path::new(".")).to_path_buf());
+    let resolved_base = fsx::resolve(&base);
+    let resolved_root = fsx::resolve(&base.join(&root));
+    if !resolved_root.starts_with(&resolved_base) {
+        return Err(err("plied.root resolves outside the repository"));
+    }
+    for kind in &kinds {
+        if !fsx::resolve(&base.join(&root).join(&kind.dir)).starts_with(&resolved_root) {
+            return Err(err(format!("ids.{}.dir resolves outside plied.root", kind.kind.name())));
+        }
+    }
     Ok(Config {
         path: path.to_path_buf(),
         base: fsx::resolve(&base),

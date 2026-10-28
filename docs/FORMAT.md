@@ -133,6 +133,14 @@ Paths are relative to the canonical checkout with `/` separators.
   characters including `/`; a leading `**/` may also match nothing; `/**/` may
   also match a single `/`.
 
+Kind directories MUST be nonempty relative paths under `plied.root`, with
+`/` separators and no `..` or drive prefix. `plied.root` follows the same
+relative-path rules under the canonical checkout. Resolved root and kind
+directories MUST remain within those parents, including through symlinks.
+ID prefixes MUST be nonempty portable filename components: no control
+characters, path separators, `<>:"|?*`, `.` or `..`. Invalid settings are
+configuration errors (exit 1).
+
 ## 3. Record files
 
 A record is a UTF-8 file named `<ID>-<slug>.md` (or `<ID>.md`) in its kind's
@@ -617,6 +625,15 @@ through symlinks) contains any sealed substring. Sealed paths, and paths that
 resolve outside the canonical checkout, are never read. A `sealed_file` that
 is configured but missing makes every read fail.
 
+Own-record loading checks both the original alias and resolved destination
+before reading bytes. An unsealed symlink inside the checkout remains
+readable. Checked record writes additionally require the destination to
+remain in a configured kind directory, and every proposed record must be
+present with its proposed bytes in the validated store. The generated view's
+destination must remain directly under the configured root. A forbidden
+destination is a policy error (exit 1), before destination bytes are read
+or any part of that write is committed.
+
 Sealing controls what plied reads and shows. It is not secrecy: a sealed file
 is still plaintext in the clone and in git history, readable by any other
 program. What it covers:
@@ -641,6 +658,15 @@ under `list`. Each entry names a file and an id (§2) and may give a SHA-256.
 Only listed papers are cleared. Page text for paper `id`, page `n` is the file
 `page_file` (with `{page}` = n) in `text_dir` (with `{id}`), or in the runtime
 cache.
+
+The generated `<runtime>/papers/` cache is an explicit exception to the
+ordinary `.git` and checkout-containment exclusions, including when
+`PLIED_RUNTIME` is outside the checkout. This permits extraction, page reads,
+citation checks, indexing and search only for cleared papers at their
+expected page paths. It never permits arbitrary `.git` reads or symlink
+escapes from the cache. Seals, explicit search exclusions, and the source
+PDF's access policy still apply: sealing a source also hides its cached
+pages. Configured `text_dir` paths retain the ordinary literature policy.
 
 Each citation gets exactly five results, always all of them and in this
 order. Each result's status is `ok`, `warn`, `fail` or `unchecked`; `fail` is

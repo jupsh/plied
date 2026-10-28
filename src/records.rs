@@ -458,17 +458,23 @@ impl Store {
         let ov: Overrides = overrides.map(|o| o.iter().map(|(p, v)| (fsx::resolve(p), v.clone())).collect()).unwrap_or_default();
         for kind in OwnKind::KINDS {
             let d = cfg.kind_dir(kind);
+            if !policy.readable(&d) {
+                st.sealed_kinds.insert(kind.name().into());
+                continue;
+            }
             let dres = fsx::resolve(&d);
-            let mut paths: Vec<PathBuf> = md_files(&d).iter().map(|p| fsx::resolve(p)).collect();
+            let mut paths = md_files(&d);
             paths.extend(ov.keys().filter(|p| p.parent() == Some(dres.as_path())).cloned());
             paths.sort();
             paths.dedup();
+            let mut seen = HashSet::new();
             for p in paths {
-                if matches!(ov.get(&p), Some(None)) {
-                    continue;
-                }
                 if !policy.readable(&p) {
                     st.sealed_kinds.insert(kind.name().into());
+                    continue;
+                }
+                let p = fsx::resolve(&p);
+                if matches!(ov.get(&p), Some(None)) || !seen.insert(p.clone()) {
                     continue;
                 }
                 let rec = read_record(&p, Kind::Own(kind), &ov)?;

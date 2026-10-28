@@ -381,6 +381,124 @@ fn a_sealed_message_log_is_neither_read_nor_appended_to() {
 
 // ------------------------------------------------------------------ §11 JSON results
 
+#[cfg(unix)]
+#[test]
+fn own_symlinks_obey_both_alias_and_target_seals() {
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "Private payload"]);
+    std::fs::create_dir(p.path().join("storage")).unwrap();
+    let alias = p.path().join("plied/threads/T001-private-payload.md");
+    let target = p.path().join("storage/T001-private-payload.md");
+    std::fs::rename(&alias, &target).unwrap();
+    std::os::unix::fs::symlink(&target, &alias).unwrap();
+    assert!(p.ok(&["show", "T001"]).contains("Private payload"), "an unsealed internal symlink is readable");
+    for seal in ["plied/threads/", "storage/"] {
+        p.edit("plied.toml", "sealed = []", &format!("sealed = [\"{seal}\"]"));
+        assert_eq!(p.code(&["show", "T001"]), Some(1));
+        for args in [&["list"][..], &["find", "{}"][..], &["check"][..], &["view", "--print"][..]] {
+            assert!(!text(&p.run(args)).contains("Private payload"), "{args:?}");
+        }
+        p.edit("plied.toml", &format!("sealed = [\"{seal}\"]"), "sealed = []");
+    }
+}
+
+#[test]
+fn record_directories_and_prefixes_are_portable_and_contained() {
+    for dir in ["../../escaped", "/tmp/escaped", "C:/escaped", "C:\\escaped", "..\\escaped"] {
+        let p = Proj::new();
+        p.append_config(&format!("[ids.thread]\ndir = {}\n", serde_json::to_string(dir).unwrap()));
+        let out = p.run(&["new", "thread", "--title", "Invalid"]);
+        assert_eq!(out.status.code(), Some(1), "{dir:?}: {}", text(&out));
+        assert!(!p.path().join("plied").exists());
+    }
+    for prefix in ["../T", "a/b", "a\\b", "C:", "", ".", "x*y"] {
+        let p = Proj::new();
+        p.append_config(&format!("[ids.thread]\nprefix = {}\n", serde_json::to_string(prefix).unwrap()));
+        assert_eq!(p.code(&["new", "thread", "--title", "Invalid"]), Some(1), "{prefix:?}");
+    }
+    let p = Proj::new();
+    p.append_config("[ids.thread]\ndir = \"work/threads\"\nprefix = \"Task\"\n");
+    p.ok(&["new", "thread", "--title", "Readable"]);
+    assert!(p.ok(&["show", "Task001"]).contains("Readable"));
+    assert_eq!(p.code(&["check"]), Some(0));
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_write_destinations_do_not_touch_outside_files() {
+    let outside = tempfile::tempdir().unwrap();
+    let sentinel = outside.path().join("README.md");
+    std::fs::write(&sentinel, "do not touch").unwrap();
+    for component in ["plied", "plied/threads"] {
+        let p = Proj::new();
+        let dest = p.path().join(component);
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(outside.path(), &dest).unwrap();
+        assert_eq!(p.code(&["new", "thread", "--title", "Escaped"]), Some(1));
+        assert_eq!(std::fs::read_to_string(&sentinel).unwrap(), "do not touch");
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
+    }
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "First"]);
+    let view = p.path().join("plied/README.md");
+    std::fs::remove_file(&view).unwrap();
+    std::os::unix::fs::symlink(&sentinel, &view).unwrap();
+    assert_eq!(p.code(&["new", "thread", "--title", "Second"]), Some(1));
+    assert_eq!(p.code(&["view"]), Some(1));
+    assert_eq!(std::fs::read_to_string(&sentinel).unwrap(), "do not touch");
+    assert_eq!(p.code(&["show", "T002"]), Some(1));
+}
+
+#[test]
+fn generated_pages_work_in_git_and_external_runtime_without_exposing_git_files() {
+    for external in [false, true] {
+        let p = Proj::new();
+        with_paper(&p);
+        p.edit("plied.toml", "text_dir = \"cache/{id}\"", "");
+        let outside = tempfile::tempdir().unwrap();
+        let runtime = if external { outside.path().join("runtime") } else { p.path().join(".git/plied") };
+        let pages = runtime.join("papers/Smith2020");
+        std::fs::create_dir_all(&pages).unwrap();
+        std::fs::write(pages.join("p01.txt"), "Table 2. Bout lengths.\n").unwrap();
+        std::fs::write(p.path().join(".git/private.md"), "unrelatedgitsecret").unwrap();
+        p.edit("plied.toml", "include = [\"plied/**/*.md\"]", "include = [\"plied/**/*.md\", \".git/*.md\"]");
+        let run = |args: &[&str]| {
+            let mut cmd = std::process::Command::new(bin());
+            cmd.arg("-C").arg(p.path()).args(args).arg("--json").env("PLIED_AGENT", "alice").env_remove("PLIED_RUNTIME");
+            if external { cmd.env("PLIED_RUNTIME", &runtime); }
+            cmd.output().unwrap()
+        };
+        assert!(run(&["lit", "page", "Smith2020", "1"]).status.success());
+        assert_eq!(envelope(&run(&["lit", "list"]))["result"][0]["pages"], 1);
+        assert_eq!(envelope(&run(&["index"]))["result"]["pages"], 1);
+        assert!(text(&run(&["search", "Bout"])).contains("Smith2020 p1"));
+        assert!(!text(&run(&["search", "unrelatedgitsecret"])).contains("snippet"));
+        assert!(run(&["new", "thread", "--title", "Citing"]).status.success());
+        p.edit("plied/threads/T001-citing.md", "status: open", "status: open\ncites:\n  - paper: Smith2020\n    page: 1\n    quote: Bout lengths.");
+        assert!(run(&["lit", "check"]).status.success());
+        p.edit("plied.toml", "sealed = []", "sealed = [\"papers/Smith2020.pdf\"]");
+        assert_eq!(run(&["lit", "page", "Smith2020", "1"]).status.code(), Some(1));
+        assert_eq!(envelope(&run(&["lit", "list"]))["result"][0]["pages"], 0);
+        assert_eq!(envelope(&run(&["index"]))["result"]["pages"], 0);
+        assert!(!text(&run(&["search", "Bout"])).contains("Smith2020 p1"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn generated_page_symlinks_cannot_read_arbitrary_git_files() {
+    let p = Proj::new();
+    with_paper(&p);
+    p.edit("plied.toml", "text_dir = \"cache/{id}\"", "");
+    let pages = p.path().join(".git/plied/papers/Smith2020");
+    std::fs::create_dir_all(&pages).unwrap();
+    let secret = p.path().join(".git/private.txt");
+    std::fs::write(&secret, "unrelated git metadata").unwrap();
+    std::os::unix::fs::symlink(&secret, pages.join("p01.txt")).unwrap();
+    assert_eq!(p.code(&["lit", "page", "Smith2020", "1"]), Some(1));
+    assert_eq!(envelope(&p.run(&["index", "--json"]))["result"]["pages"], 0);
+}
+
 fn envelope(out: &std::process::Output) -> serde_json::Value {
     assert!(out.stderr.is_empty(), "--json writes nothing to stderr:\n{}", text(out));
     serde_json::from_slice(&out.stdout).unwrap_or_else(|e| panic!("not one JSON document ({e}):\n{}", text(out)))

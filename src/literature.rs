@@ -184,14 +184,29 @@ impl<'a> Library<'a> {
         self.text_dir(p).join(self.template(&self.settings.page_file, p, Some(page)))
     }
 
+    pub fn page_readable(&self, p: &Paper, path: &Path) -> bool {
+        // Sealing a source also hides page text extracted before it was sealed.
+        if self.policy.is_sealed(Path::new(&p.file))
+            || self.pdf_path(p).is_some_and(|pdf| !self.policy.readable(&pdf))
+        {
+            return false;
+        }
+        if self.settings.text_dir.is_some() {
+            self.policy.literature_readable(path)
+        } else {
+            self.policy.generated_page_readable(path, &self.runtime)
+        }
+    }
+
     /// The pages with text, in order.
     pub fn pages(&self, p: &Paper) -> Vec<i64> {
         let d = self.text_dir(p);
-        if !d.exists() || !self.policy.literature_readable(&d) {
+        if !d.exists() || !self.page_readable(p, &d) {
             return vec![];
         }
         let mut out: Vec<i64> = std::fs::read_dir(&d)
-            .map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| self.page_re.captures(&e.file_name().to_string_lossy()).and_then(|m| m[1].parse().ok())).collect())
+            .map(|rd| rd.filter_map(|e| e.ok()).filter(|e| self.page_readable(p, &e.path()))
+                .filter_map(|e| self.page_re.captures(&e.file_name().to_string_lossy()).and_then(|m| m[1].parse().ok())).collect())
             .unwrap_or_default();
         out.sort();
         out
@@ -202,7 +217,7 @@ impl<'a> Library<'a> {
         if !path.exists() {
             return Ok(None);
         }
-        if !self.policy.literature_readable(&path) {
+        if !self.page_readable(p, &path) {
             return Err(Fail::policy(format!("{} is not readable under the access policy", path.display())));
         }
         fsx::read_text(&path).map(Some)
@@ -342,6 +357,9 @@ impl<'a> Library<'a> {
         self.policy.check_readable(&pdf)?;
         let pages = crate::pdf::page_texts(&pdf)?;
         let d = self.text_dir(p);
+        if !self.page_readable(p, &d) || pages.iter().enumerate().any(|(i, _)| !self.page_readable(p, &self.page_path(p, i as i64 + 1))) {
+            return Err(Fail::policy("generated page destination is not readable under the access policy"));
+        }
         std::fs::create_dir_all(&d)?;
         for (i, text) in pages.iter().enumerate() {
             std::fs::write(self.page_path(p, i as i64 + 1), text)?;

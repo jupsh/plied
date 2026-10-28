@@ -116,6 +116,21 @@ impl Policy {
         !(glob_match(&relp, &self.hard_exclude) || glob_match(&relp, &self.exclude))
     }
 
+    /// Only the generated page cache may live under .git or an external PLIED_RUNTIME.
+    /// Symlinks cannot turn that exception into permission to read another directory.
+    pub fn generated_page_readable(&self, path: &Path, runtime: &Path) -> bool {
+        let cache = resolve(runtime).join("papers");
+        let real = resolve(path);
+        if resolve(&cache) != cache || !real.starts_with(&cache) || self.is_sealed(path) || self.is_sealed(&real) {
+            return false;
+        }
+        let given = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(path) };
+        if !given.starts_with(&cache) {
+            return false;
+        }
+        [given, real].iter().all(|p| !glob_match(&fsx::rel(&self.base, p), &self.exclude))
+    }
+
     pub fn digest(&self) -> String {
         let blob = json!({
             "format": INDEX_FORMAT,
@@ -126,6 +141,7 @@ impl Policy {
             "exclude": self.exclude,
             "hard_exclude": self.hard_exclude,
             "literature": self.literature,
+            "generated_pages": "contained-runtime-papers-with-source-policy-v1",
         });
         fsx::sha(blob.to_string().as_bytes())
     }
