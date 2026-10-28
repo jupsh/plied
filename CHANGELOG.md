@@ -4,6 +4,16 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- Teach agents to compare objects and necessary assumptions before reusing
+  prior outcomes, preserving valid results when a new task changes scope.
+  Add a replayable scope example covering aliases, covered subsets and a
+  changed premise. The record format and review gates are unchanged.
+- Add an optional `related` companion example for passage-level BM25 and
+  local semantic retrieval, with ranked source excerpts and raw-byte revisions.
+  Retrieval is advisory and has no record-writing or gate authority.
+
 ## 0.9.0 — 2026-10-28
 
 The record format and JSON envelope remain at version 1. This release adds
