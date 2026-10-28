@@ -813,6 +813,10 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
         let r = st.get(id).ok_or_else(|| Fail::new(format!("no record {id}")))?;
         value["node"] = json!({"id": r.id, "show_args": ["show", r.id], "messages_args": ["messages", r.id],
             "claims": node_claims(&ctx, &r.id), "commitments": commitments_json(&node_commitments(&st, r))});
+        if r.is(OwnKind::Thread) {
+            value["node"]["body_summary"] = json!(r.body_summary());
+            value["node"]["rev"] = json!(r.rev);
+        }
     }
     print_discovery(value, cli.json)
 }
@@ -1105,10 +1109,10 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, json: bool) -> Res<i32> {
         for (k, v) in &fr {
             obj.insert(
                 k.clone(),
-                Value::Array(v.iter().map(|r| json!({"id": r.id, "next": r.meta.get("next").map(Node::to_json), "title": r.title(), "rev": r.rev})).collect()),
+                Value::Array(v.iter().map(|r| json!({"id": r.id, "next": r.meta.get("next").map(Node::to_json), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()})).collect()),
             );
         }
-        let unsched: Vec<Value> = unscheduled.iter().map(|r| json!({"id": r.id, "actor": doc::text(&r.meta, "actor"), "title": r.title(), "rev": r.rev})).collect();
+        let unsched: Vec<Value> = unscheduled.iter().map(|r| json!({"id": r.id, "actor": doc::text(&r.meta, "actor"), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()})).collect();
         // with --actor the text output shows only that actor's work (below); open questions and
         // dates are no one actor's, so under --json they are empty too, not everyone's
         let open: Vec<Value> = if actor.is_some() { vec![] } else { qs.iter().map(|q| json!({"id": q.id, "title": q.title(), "rev": q.rev})).collect() };
@@ -1122,6 +1126,9 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, json: bool) -> Res<i32> {
         for r in rs {
             let n = r.meta.get("next").map(Node::to_string).unwrap_or_default();
             outln!("  {n}. {} {}", r.id, r.title());
+            if let Some(summary) = views::summary_preview(r) {
+                outln!("     Summary (author-written preview): {summary}");
+            }
         }
     }
     if !unscheduled.is_empty() {
@@ -1129,6 +1136,9 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, json: bool) -> Res<i32> {
         for r in &unscheduled {
             let who = doc::text(&r.meta, "actor").map(|a| format!(" ({a})")).unwrap_or_default();
             outln!("  {} {}{who}", r.id, r.title());
+            if let Some(summary) = views::summary_preview(r) {
+                outln!("    Summary (author-written preview): {summary}");
+            }
         }
     }
     if !qs.is_empty() && actor.is_none() {
