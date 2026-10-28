@@ -434,6 +434,8 @@ pub struct Store {
     file_ids: Vec<(OwnKind, String)>,
     /// (code, where, message)
     pub load_problems: Vec<(&'static str, String, String)>,
+    /// Source names whose globs selected no files allowed by the access policy.
+    pub empty_sources: Vec<String>,
     /// kinds and sources with files the access policy kept unread
     sealed_kinds: HashSet<String>,
     token: OnceCell<fancy_regex::Regex>,
@@ -449,6 +451,7 @@ impl Store {
             index: HashMap::new(),
             file_ids: vec![],
             load_problems: vec![],
+            empty_sources: vec![],
             sealed_kinds: HashSet::new(),
             token: OnceCell::new(),
         };
@@ -475,6 +478,7 @@ impl Store {
         for src in &cfg.sources {
             let mut names = globpat::glob(&cfg.base, &src.glob);
             names.sort();
+            let mut has_file = false;
             for name in names {
                 let joined = cfg.base.join(&name);
                 if !policy.readable(&joined) {
@@ -485,6 +489,7 @@ impl Store {
                 if !p.is_file() {
                     continue;
                 }
+                has_file = true;
                 let rec = read_record(&p, Kind::Linked(src.clone()), &ov)?;
                 if rec.id.is_empty() {
                     continue; // generated indexes, templates: not records
@@ -494,6 +499,9 @@ impl Store {
                     continue;
                 }
                 st.add(rec);
+            }
+            if !has_file {
+                st.empty_sources.push(src.name.clone());
             }
         }
         Ok(st)
