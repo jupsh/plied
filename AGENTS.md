@@ -1,5 +1,18 @@
 # Notes for agents working on plied
 
+This repository implements plied, a checked work record for teams of agents
+and people. Projects using the installed tool have their own `plied.toml`
+and work records. Tool users: start with the README's Quick start and
+`plied skill`; the [first-task walkthrough](examples/first-task/README.md)
+runs the workflow in a disposable project.
+
+Contributors: read the [development guide](docs/DEVELOPMENT.md) for the source
+map, test selection and architecture, then the relevant FORMAT section and
+conformance fixture. Build the matching local binary with `cargo build
+--locked`; run `./target/debug/plied --help` and `cargo test --locked`.
+Required broader checks include Rust 1.89 tests and stable Clippy with and
+without PDF support; exact commands are in the development guide.
+
 `docs/FORMAT.md` is the contract. A change to files, checks, exit codes or
 `--json` output updates it in the same change, along with a test (a
 conformance fixture in `tests/conformance.rs` when another implementation
@@ -16,7 +29,7 @@ Things that aren't obvious from the code:
   another (one `waiting_on:<id>` error per dependency, `reviews[<i>]` indexes
   that stay stable because lists are only appended to).
 - **Adding a record field** touches `OwnKind::fields` (canonical order),
-  `LIST_FIELDS` for lists, `subfields` in `check.rs` for mapping items, and
+  `LIST_FIELDS` for lists, `subfields` in `schema.rs` for mapping items, and
   `ref_fields` only if it should attach commitments (§12) and count for
   `stale`. The format stays 1. Older plied reports the field as unknown, so
   FORMAT.md marks the version that added it and the CHANGELOG tells stores to

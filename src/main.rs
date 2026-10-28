@@ -23,7 +23,8 @@ use plied::writer::{Who, Writer, apply_assignments};
 use plied::{errln, gitguard, hook, index, outln, query, repo};
 
 #[derive(Parser)]
-#[command(name = "plied", version = plied::VERSION, about = "A git-tracked work record for teams of agents and people.")]
+#[command(name = "plied", version = plied::VERSION, about = "A git-tracked work record for teams of agents and people.",
+    after_help = "Tasks:\n  Orient       context, schema, show, frontier, tree, messages, skill\n  Update       new, set, note, replace, view\n  Review       review, dispose, scanned, check\n  Communicate  claim, who, send, inbox, release\n  Recover      context, recover, guard, index\n\nStart with `plied context --json`; use `plied COMMAND --help` for exact arguments.")]
 struct Cli {
     /// run as if started in PATH
     #[arg(short = 'C', value_name = "PATH")]
@@ -296,7 +297,7 @@ enum LitCmd {
     Extract { paper: String },
     /// records that cite or mention a paper
     Cites { paper: String },
-    /// every citation: clearance, hash, page, quotation
+    /// every citation: clearance, hash, page, quotation and image claim
     Check,
     /// search cleared paper pages
     Search { terms: Vec<String>, #[arg(long)] paper: Option<String>, #[arg(short = 'n', default_value_t = 10)] n: usize },

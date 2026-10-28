@@ -1,5 +1,5 @@
 //! Cleared literature (FORMAT.md §10): papers by id and PDF page, page text, page images, and the
-//! four citation checks: clearance, source hash, page existence and quotation.
+//! five citation checks: clearance, source hash, page existence, quotation and image claim.
 //!
 //! Every file is read through the access policy. A matching quotation shows the words are on the
 //! page, not that they support the claim; OCR'd page text and anything from a table or figure still
