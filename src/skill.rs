@@ -339,6 +339,29 @@ not new fields. `revisit` is prose too: it does not reopen work automatically.
 Search results are candidates to inspect; a high similarity score does not
 establish applicability, and no search hits do not establish that work is new.
 
+## Optional thread summaries
+
+When a thread is difficult to resume or browse, add a short `## Summary`
+section to its body. Say what it concerns, what is established and under which
+conditions, what remains unresolved or should happen next, and where the
+evidence lives. Keep essential qualifications even when shortening it.
+
+Use `new --body FILE` for a new thread. For an existing thread, read its full
+record and revision with `show`, preserve its frontmatter and the rest of the
+file (including History), and use
+`replace` with that revision. `note` appends to History; a Summary heading
+inside History is not the current synopsis. Use `replace --help` for the
+arguments. Update a summary when a substantive result or next decision makes
+it misleading; there is no need to add one or rewrite it on every edit.
+
+Orientation and retrieval may show it as `body_summary`, with the source
+record's revision. This is a read-only extraction, not a frontmatter field.
+Previews can be shortened and summaries can be outdated: read the full
+record, source evidence and exact commitment wording before acting. A preview
+and its revision do not stand in for reading the text of a checked write.
+Summaries do not establish accuracy, freshness, authority or approval, and
+never change a gate or a status. No automatic summary generation is implied.
+
 ## Before you hand off
 
 For each node you claimed, note what is unfinished and where it is (a
