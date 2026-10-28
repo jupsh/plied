@@ -95,6 +95,14 @@ print(json.dumps({"model":{"name":"fixture"},"query":[1,0],"documents":[[1,0] fo
         self.assertEqual(candidate["body_summary"], "Integer case only; real case unresolved.")
         self.assertEqual(candidate["applicability"], "unassessed")
 
+    def test_history_heading_in_code_keeps_later_source_text(self):
+        self.write("E001", "```md\n## History\nexample\n```\n"
+                   "    ## History\nSOURCE_AFTER_CODE\n\n## History\nAUDIT_ONLY", "notes/allowed.md")
+        self.hybrid()
+        received = (self.root / "received.json").read_text()
+        self.assertIn("SOURCE_AFTER_CODE", received)
+        self.assertNotIn("AUDIT_ONLY", received)
+
     def test_retrieval_preserves_record_and_configuration_bytes(self):
         before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file() and p.suffix in [".md", ".toml"]}
         self.hybrid()

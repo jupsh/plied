@@ -76,18 +76,37 @@ fn split(text: &str) -> Vec<String> {
     out
 }
 
+// A heading shown as code is source content, not the generated audit boundary.
+fn before_history(body: &str) -> String {
+    let mut lines = vec![];
+    let mut fence: Option<(char, usize)> = None;
+    for line in body.lines() {
+        let indent = line.bytes().take_while(|b| *b == b' ').count();
+        let block = &line[indent..];
+        let eligible = indent <= 3 && !block.starts_with('\t');
+        let marker = block.chars().next().filter(|c| matches!(c, '`' | '~'));
+        let count = marker.map_or(0, |c| block.chars().take_while(|x| *x == c).count());
+        if let Some((c, n)) = fence {
+            if eligible && marker == Some(c) && count >= n && block[count..].trim().is_empty() {
+                fence = None;
+            }
+        } else if eligible && count >= 3 && (marker != Some('`') || !block[count..].contains('`')) {
+            fence = marker.map(|c| (c, count));
+        } else if eligible && block.trim_end() == "## History" {
+            break;
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
+}
+
 fn corpus(store: &Store, policy: &Policy) -> Vec<Passage> {
     let mut out = vec![];
     for r in &store.records {
         if r.parse_error.is_some() || !policy.searchable(&r.path) {
             continue;
         }
-        let body = r
-            .body
-            .lines()
-            .take_while(|l| l.trim() != "## History")
-            .collect::<Vec<_>>()
-            .join("\n");
+        let body = before_history(&r.body);
         let mut parts = vec![("body", body)];
         let body_summary = r.body_summary();
         if let Some(summary) = &body_summary {
@@ -328,6 +347,13 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn history_examples_do_not_hide_later_source_passages() {
+        let source = "```md\n## History\nexample\n```\n    ## History\n\t## History\n~~~~md\n## History\n~~~\nexample\n~~~~\nSOURCE_AFTER_CODE\n";
+        assert_eq!(before_history(&format!("{source}  ## History  \nAUDIT_ONLY")), source.trim_end());
+        assert_eq!(before_history(source), source.trim_end());
+    }
 
     #[test]
     fn splitting_preserves_unicode_and_exact_source_substrings() {
