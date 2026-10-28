@@ -652,6 +652,59 @@ fn diagnostics(p: &Proj) -> Vec<(String, String, String, String)> {
     v["result"]["diagnostics"].as_array().unwrap().iter().map(|d| (s(d, "level"), s(d, "code"), s(d, "where"), s(d, "subject"))).collect()
 }
 
+// §8: emptiness is about accessible files, not accepted records, and never blocks writes.
+#[test]
+fn empty_sources_warn_by_name_without_failing_checks_or_writes() {
+    let p = Proj::new();
+    p.with_evidence();
+    p.append_config("[[sources]]\nname = \"notes\"\nglob = \"missing/*.md\"\nid = \"^N[0-9]{3}$\"\n");
+    let expected = vec![
+        ("warning".into(), "source-empty".into(), "plied.toml".into(), "evidence".into()),
+        ("warning".into(), "source-empty".into(), "plied.toml".into(), "notes".into()),
+    ];
+    assert_eq!(diagnostics(&p), expected);
+    assert_eq!(p.code(&["check"]), Some(0));
+    let errors_only = envelope(&p.run(&["check", "--errors-only", "--json"]));
+    assert_eq!(errors_only["result"]["diagnostics"], serde_json::json!([]));
+    p.ok(&["new", "thread", "--title", "Allowed while sources are empty"]);
+    assert_eq!(diagnostics(&p), expected);
+    p.evidence("E001", "", "A source now exists.");
+    assert_eq!(diagnostics(&p), vec![expected[1].clone()]);
+}
+
+#[test]
+fn source_empty_counts_files_before_id_validation_but_after_access_filtering() {
+    let p = Proj::new();
+    p.with_evidence();
+    let empty = |p: &Proj| diagnostics(p).iter().any(|(_, c, _, _)| c == "source-empty");
+    std::fs::create_dir(p.path().join("evidence/directory.md")).unwrap();
+    assert!(empty(&p), "directories are not files");
+    let path = p.path().join("evidence/template.md");
+    std::fs::write(&path, "# No record id\n").unwrap();
+    assert!(!empty(&p), "an idless template is still a file");
+    std::fs::write(&path, "---\nid: WRONG\n---\n").unwrap();
+    assert!(!empty(&p), "an invalid id has its own warning");
+    assert!(diagnostics(&p).iter().any(|(_, c, _, _)| c == "source-id"));
+    p.edit("plied.toml", "sealed = []", "sealed = [\"evidence/\"]");
+    // Invalid UTF-8 also proves that a sealed file's contents are not inspected.
+    std::fs::write(&path, [0xff]).unwrap();
+    let checked = p.ok(&["check", "--json"]);
+    assert!(empty(&p));
+    assert!(!checked.contains("template.md") && !checked.contains("directory.md") && !checked.contains("WRONG"), "{checked}");
+}
+
+#[cfg(unix)]
+#[test]
+fn source_empty_excludes_symlinks_outside_the_repository() {
+    let p = Proj::new();
+    p.with_evidence();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(outside.path(), "---\nid: E001\n---\n").unwrap();
+    std::os::unix::fs::symlink(outside.path(), p.path().join("evidence/E001.md")).unwrap();
+    assert!(diagnostics(&p).iter().any(|(_, c, _, _)| c == "source-empty"));
+    assert_eq!(p.code(&["check"]), Some(0));
+}
+
 fn scan_warned(p: &Proj) -> bool {
     diagnostics(p).iter().any(|(l, c, w, _)| l == "warning" && c == "commitment?" && w == "N001")
 }

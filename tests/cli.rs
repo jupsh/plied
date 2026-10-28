@@ -358,3 +358,4 @@ fn a_closed_stdout_ends_the_output_not_the_command() {
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
     assert!(p.ok(&["list"]).contains("T002"));
 }
+

@@ -101,6 +101,9 @@ pub fn run(store: &Store, inputs: &Inputs) -> Vec<Problem> {
     for (code, at, msg) in &store.load_problems {
         if *code == "source-id" { p.warn(code, at, msg.as_str()) } else { p.err(code, at, "", msg.as_str()) }
     }
+    for name in &store.empty_sources {
+        p.warn_on("source-empty", "plied.toml", name, format!("source {name:?} matches no readable files; check its glob and access policy"));
+    }
     for src in cfg.sources.iter().filter(|s| s.authority_field.is_some() && s.scope_field.is_none()) {
         p.err(
             "config",
