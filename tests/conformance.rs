@@ -287,6 +287,92 @@ fn envelope(out: &std::process::Output) -> serde_json::Value {
 }
 
 #[test]
+fn session_scoped_release_requires_a_session_and_preserves_other_sessions() {
+    let p = two_threads();
+    p.ok(&["claim", "T001", "--session", "one"]);
+    p.ok(&["claim", "T002", "--session", "two"]);
+    let release = |args: &[&str], session: Option<&str>, claude: Option<&str>| {
+        let mut cmd = std::process::Command::new(bin());
+        cmd.arg("-C").arg(p.path()).args(args).arg("--json")
+            .env("PLIED_AGENT", "alice").env_remove("PLIED_SESSION").env_remove("CLAUDE_CODE_SESSION_ID");
+        if let Some(s) = session { cmd.env("PLIED_SESSION", s); }
+        if let Some(s) = claude { cmd.env("CLAUDE_CODE_SESSION_ID", s); }
+        cmd.output().unwrap()
+    };
+    for args in [&["release", "--this-session"][..], &["release", "--this-session", "--session", ""][..]] {
+        let out = release(args, None, None);
+        assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+        assert_eq!(envelope(&out)["status"], "usage");
+    }
+    assert_eq!(envelope(&p.run(&["who", "--json"]))["result"].as_array().unwrap().len(), 2);
+    let out = release(&["release", "--this-session", "--session", "two"], Some("one"), Some("other"));
+    assert_eq!(envelope(&out)["result"]["released"], 1);
+    assert_eq!(envelope(&p.run(&["who", "--json"]))["result"][0]["session"], "one");
+    let out = release(&["release", "--this-session"], Some(""), Some("one"));
+    assert_eq!(envelope(&out)["result"]["released"], 1);
+    p.ok(&["claim", "T001", "--session", "one"]);
+    assert_eq!(envelope(&release(&["release", "--this-session"], Some("one"), None))["result"]["released"], 1);
+}
+
+#[test]
+fn init_from_a_linked_worktree_uses_the_canonical_checkout() {
+    let root = tempfile::tempdir().unwrap();
+    let main = root.path().join("main");
+    let linked = root.path().join("linked");
+    std::fs::create_dir(&main).unwrap();
+    for args in [vec!["init", "-q", "-b", "main"], vec!["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--allow-empty", "-qm", "start"]] {
+        let out = std::process::Command::new("git").arg("-C").arg(&main).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", text(&out));
+    }
+    assert!(std::process::Command::new("git").arg("-C").arg(&main).args(["worktree", "add", "-qb", "feature"]).arg(&linked).output().unwrap().status.success());
+    let run = |args: &[&str]| std::process::Command::new(bin()).arg("-C").arg(&linked).args(args).env("PLIED_AGENT", "alice").output().unwrap();
+    let out = run(&["init", "--json"]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(main.join("plied.toml").exists());
+    assert!(!linked.join("plied.toml").exists());
+    assert!(!run(&["init"]).status.success(), "an existing canonical configuration must not be overwritten");
+    let out = run(&["new", "thread", "--title", "First"]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(run(&["show", "T001"]).status.success());
+    assert!(main.join("plied/threads/T001-first.md").exists());
+    assert!(!linked.join("plied").exists());
+}
+
+#[test]
+fn c_resolves_all_relative_input_files_from_the_effective_directory() {
+    let p = Proj::new();
+    let caller = tempfile::tempdir().unwrap();
+    let effective = p.path().join("subdir");
+    std::fs::create_dir(&effective).unwrap();
+    std::fs::write(caller.path().join("input.md"), "caller bytes").unwrap();
+    std::fs::write(effective.join("input.md"), "target bytes").unwrap();
+    std::fs::write(caller.path().join("custom.toml"), "invalid configuration").unwrap();
+    std::fs::copy(p.path().join("plied.toml"), effective.join("custom.toml")).unwrap();
+    let run = |args: &[&str]| std::process::Command::new(bin()).current_dir(caller.path())
+        .arg("-C").arg(&effective).args(["--config", "custom.toml"]).args(args).arg("--json").env("PLIED_AGENT", "alice").output().unwrap();
+    let out = run(&["new", "thread", "--title", "First", "--body", "input.md", "--set-file", "title=input.md"]);
+    assert!(out.status.success(), "{}", text(&out));
+    let shown = envelope(&run(&["show", "T001"]));
+    assert_eq!(shown["result"]["title"], "target bytes");
+    assert!(shown["result"]["body"].as_str().unwrap().contains("target bytes"));
+    let rev = shown["result"]["rev"].as_str().unwrap();
+    let out = run(&["set", "T001", "--set-file", "actor=input.md", "--expect", rev]);
+    assert!(out.status.success(), "{}", text(&out));
+    let shown = envelope(&run(&["show", "T001"]));
+    assert_eq!(shown["result"]["actor"], "target bytes");
+    let replacement = shown["result"]["text"].as_str().unwrap().to_string() + "\nreplacement from target\n";
+    std::fs::write(effective.join("replace.md"), &replacement).unwrap();
+    std::fs::write(caller.path().join("replace.md"), "invalid caller record").unwrap();
+    let out = run(&["replace", "T001", "replace.md", "--expect", shown["result"]["rev"].as_str().unwrap()]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(envelope(&run(&["show", "T001"]))["result"]["body"].as_str().unwrap().contains("replacement from target"));
+    let absolute = caller.path().join("input.md");
+    let out = run(&["new", "thread", "--title", "Absolute", "--body", absolute.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(envelope(&run(&["show", "T002"]))["result"]["body"].as_str().unwrap().contains("caller bytes"));
+}
+
+#[test]
 fn every_command_answers_json_in_one_envelope() {
     let p = two_threads();
     commitment(&p, &["nodes=[T001]"]);

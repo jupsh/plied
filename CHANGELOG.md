@@ -4,6 +4,15 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
+## Unreleased
+
+- Initialize the canonical checkout from linked worktrees, resolve relative
+  command input files against `-C`, and refuse `release --this-session` when
+  no session is set. Empty session variables fall through to the next source.
+  ([#53](https://github.com/jupsh/plied/issues/53),
+  [#54](https://github.com/jupsh/plied/issues/54),
+  [#55](https://github.com/jupsh/plied/issues/55))
+
 ## 0.8.0 — 2026-10-27
 
 - **`check` warns when a source selects no readable files.** The warning

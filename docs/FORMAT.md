@@ -671,6 +671,20 @@ record moved on since `--expect`) · 4 the change would add validation errors ·
 `CLAUDE_CODE_SESSION_ID` (session, unless `--session`), `PLIED_RUNTIME`,
 `PLIED_CANONICAL`.
 
+**Input paths.** `-C PATH` selects the effective starting directory. Relative
+`--config`, `--body`, `--set-file` and `replace` input paths are relative to
+that directory (the caller's directory without `-C`); absolute paths are
+unchanged. `-` still means stdin where supported. `init` writes the template
+in the canonical checkout, including when invoked from a linked worktree,
+or in the effective starting directory outside git. An explicit `--config`
+selects the template's destination instead. An existing file is never overwritten.
+
+**Session-scoped release.** `release --this-session` requires a nonempty
+effective session: the first nonempty `--session`, `PLIED_SESSION`, or
+`CLAUDE_CODE_SESSION_ID`. Without one it is a usage error (exit 2) and no
+claims change. With one it releases only the acting agent's claims in that
+session. `release` without `--this-session` retains its all-sessions meaning.
+
 **Streams.** Without `--json`, a command's result goes to stdout. Errors,
 gate reasons, guard refusals and notes go to stderr. That text is for people,
 and its wording is not part of this contract. With `--json` (§11.1), stdout
