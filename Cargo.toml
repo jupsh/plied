@@ -11,7 +11,7 @@ homepage = "https://github.com/jupsh/plied"
 repository = "https://github.com/jupsh/plied"
 keywords = ["agents", "multi-agent", "provenance", "git", "literature"]
 categories = ["command-line-utilities", "science", "development-tools"]
-include = ["src/**/*", "tests/**/*", "README.md", "CHANGELOG.md", "LICENSE"]
+include = ["src/**/*", "tests/**/*", "examples/**/*", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [lib]
 name = "plied"
@@ -49,3 +49,4 @@ tempfile = "3"
 [profile.release]
 lto = "thin"
 strip = true
+

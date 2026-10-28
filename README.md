@@ -410,6 +410,9 @@ it.
 
 ## Further reading
 
+- [Worked research example](examples/research/README.md) — replay an interrupted
+  experiment through recovery, comparison, interpretation and replication,
+  with a tracked store and explicit limits of a passing gate.
 - [Format specification](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md) — the contract for files and
   command-line behaviour.
 - [Scope](https://github.com/jupsh/plied/blob/main/docs/SCOPE.md) — what plied does itself, what it only makes
@@ -419,4 +422,5 @@ it.
 ## Licence
 
 MIT.
+
 
