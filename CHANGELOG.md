@@ -16,6 +16,12 @@ are versioned separately from plied itself; see
   that a record preceded an event. No file format or checking behaviour changes.
   ([#36](https://github.com/jupsh/plied/issues/36))
 
+- **The skill shows how to review controls before citing a null.** Quote the
+  plan's positive-control or manipulation-check requirement, gate a fresh
+  `cite-null` action, and record a failed control as `blocks`. The example
+  spells out that the gate does not establish that the control passed.
+  ([#39](https://github.com/jupsh/plied/issues/39))
+
 ## 0.7.0 — 2026-10-25
 
 - **A commitment can be superseded by another.** A decision that replaces
@@ -175,4 +181,5 @@ The first release. Record format 1, JSON envelope version 1.
   `runtime.revision_days`, and `plied gc` prunes it.
 - **Git guards**, so that record files change only through plied in the
   canonical checkout.
+
 
