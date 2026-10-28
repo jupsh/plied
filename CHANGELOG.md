@@ -6,19 +6,28 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+## 0.10.0 — 2026-10-28
+
+The record format and JSON envelope remain at version 1. Thread summaries
+add read-only orientation data; retrieval remains an optional experimental
+companion, with applicability and evidence judgments left to the agent.
+
 - Support optional author-written thread synopses in a `## Summary` body
   section. Expose a read-only `body_summary` in orientation results and
   bounded previews in the frontier and generated views; index it alongside
   source passages in the optional retrieval companion. No record field or
   approval/gate semantics change, and summary freshness is not established.
+  ([#73](https://github.com/jupsh/plied/pull/73))
 - Teach agents to compare objects and necessary assumptions before reusing
   prior outcomes, preserving valid results when a new task changes scope.
   Add a replayable scope example covering aliases, covered subsets and a
   changed premise. The record format and review gates are unchanged.
+  ([#72](https://github.com/jupsh/plied/pull/72))
 - Add an optional `related` companion example for passage-level BM25 and
   local semantic retrieval, with ranked source excerpts and raw-byte revisions.
   Retrieval is advisory and has no record-writing or gate authority.
   History headings inside code examples do not hide later source passages.
+  ([#72](https://github.com/jupsh/plied/pull/72))
 
 ## 0.9.0 — 2026-10-28
 
