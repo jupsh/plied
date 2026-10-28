@@ -22,6 +22,7 @@ pub mod records;
 pub mod repo;
 pub mod schema;
 pub mod skill;
+mod summary;
 pub mod review;
 pub mod textmatch;
 pub mod val;
