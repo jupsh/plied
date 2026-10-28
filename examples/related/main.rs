@@ -48,6 +48,7 @@ struct Passage {
     revision: String,
     section: String,
     excerpt: String,
+    body_summary: Option<String>,
     #[serde(skip)]
     text: String,
 }
@@ -88,6 +89,9 @@ fn corpus(store: &Store, policy: &Policy) -> Vec<Passage> {
             .collect::<Vec<_>>()
             .join("\n");
         let mut parts = vec![("body", body)];
+        if let Some(summary) = r.body_summary() {
+            parts.push(("body_summary", summary));
+        }
         for name in ["outcome.quote", "wording", "summary", "revisit", "answer"] {
             if let Some(value) = r.get(name).and_then(|n| n.scalar()) {
                 parts.push((name, value));
@@ -104,6 +108,7 @@ fn corpus(store: &Store, policy: &Policy) -> Vec<Passage> {
                     path: fsx::rel(&store.cfg.base, &r.path),
                     revision: r.rev.clone(),
                     section: section.into(),
+                    body_summary: r.body_summary(),
                     text: format!("{}\n{excerpt}", r.title()),
                     excerpt,
                 });
