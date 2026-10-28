@@ -152,6 +152,17 @@ pub fn locate_fast(start: &Path) -> Option<Repo> {
 }
 
 /// Find the initialization destination without requiring a configuration to exist yet.
+pub fn configuration_path(start: Option<&Path>, config_path: Option<&Path>) -> Res<PathBuf> {
+    let cwd = std::env::current_dir()?;
+    let start = fsx::resolve(start.unwrap_or(&cwd));
+    if let Some(path) = config_path { return Ok(fsx::resolve(&start.join(path))); }
+    if git(&start, &["rev-parse", "--show-toplevel"]).is_some() {
+        return Ok(init_base(&start)?.join(config::CONFIG_NAME));
+    }
+    Ok(find_upwards(&start).unwrap_or(start).join(config::CONFIG_NAME))
+}
+
+/// Find the initialization destination without requiring a configuration to exist yet.
 pub fn init_base(start: &Path) -> Res<PathBuf> {
     let start = fsx::resolve(start);
     if git(&start, &["rev-parse", "--show-toplevel"]).is_none() {

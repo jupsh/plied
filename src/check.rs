@@ -15,6 +15,7 @@ use crate::literature::{Library, Status};
 use crate::messages::Messages;
 use crate::records::{Applies, CommitmentState, Disposition, OwnKind, QuestionState, Record, Store, ThreadStatus, is_rev, node_ref, ref_id};
 use crate::textmatch;
+use crate::schema::{subfields, enums};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -163,26 +164,6 @@ fn shown(v: Option<&Node>) -> String {
 }
 
 // ------------------------------------------------------------------------------ per record
-
-fn subfields(field: &str) -> Option<&'static [&'static str]> {
-    match field {
-        "approval" => Some(&["state", "by"]),
-        "outcome" => Some(&["quote", "ref"]),
-        "cites" => Some(&["paper", "page", "quote", "kind", "image_checked", "note"]),
-        "reviews" => Some(&["action", "disposition", "at", "by", "because", "ref"]),
-        "scanned" => Some(&["record", "rev", "at", "by", "because"]),
-        _ => None,
-    }
-}
-
-/// Subfields restricted to a set of values (§3.3). `true`/`false` are booleans: frontmatter scalars
-/// are strings, so they are matched as text.
-fn enums(field: &str) -> &'static [(&'static str, &'static [&'static str])] {
-    match field {
-        "cites" => &[("kind", &["table", "figure"]), ("image_checked", &["true", "false"])],
-        _ => &[],
-    }
-}
 
 fn fields(r: &Record, at: &str, p: &mut Report) {
     let kind = r.own().expect("own record");
