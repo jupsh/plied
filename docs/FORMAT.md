@@ -679,6 +679,11 @@ in the canonical checkout, including when invoked from a linked worktree,
 or in the effective starting directory outside git. An explicit `--config`
 selects the template's destination instead. An existing file is never overwritten.
 
+Git guards obtain changed paths as NUL-delimited fields, without Git's
+display quoting. Unicode, tabs and newlines in a managed path do not exempt
+it from staged or range checks. A filename that cannot be decoded as UTF-8
+refuses the guard rather than being skipped.
+
 **Session-scoped release.** `release --this-session` requires a nonempty
 effective session: the first nonempty `--session`, `PLIED_SESSION`, or
 `CLAUDE_CODE_SESSION_ID`. Without one it is a usage error (exit 2) and no
@@ -715,6 +720,13 @@ appends one `scanned` item to thread `T`, after checking that `R` is a linked
 record of a source with `scan_commitments` and that its revision still starts
 with `REV`. Otherwise it is a conflict (exit 3, with `detail` naming `R`), so
 a review always covers what was read.
+
+All checked record writes, including `set` and `replace`, MUST preserve the
+existing `reviews` and `scanned` entries as an unchanged prefix in list
+order. Appending is allowed; deleting, editing or reordering existing entries
+is refused with exit 4 and an `append-only` diagnostic (subject: the list
+field, location: the record path). This is a write-time comparison, not a
+claim of tamper resistance against direct edits or rewritten git history.
 
 **Side effects of reading.** `plied inbox` records `read` for the messages it
 shows, unless `--peek` is given. `plied show` adds the revision it shows to
@@ -903,10 +915,12 @@ it) governs every action, so a misspelling holds the gate instead of opening
 it. Narrowing `governs` opens gates just as removing a node from `nodes`
 does, and like that it needs no authority: the history line records it.
 
-**The gate.** `--gate` needs `--action` (otherwise a usage error, exit 2). It
+**The gate.** `--gate` needs at least one node and `--action` (otherwise a usage error, exit 2). It
 exits 6 when any applicable commitment that governs `A` has no review for
-`A`, or when its latest review for `A` has disposition `blocks`. Otherwise it
-exits 0, including when no commitment applies.
+`A`, or when its latest review for `A` has disposition `blocks`, or a missing
+or unrecognized disposition. Otherwise it exits 0, including when no
+commitment applies to a real named node. Unrelated validation errors do not
+change this verdict; `check` reports them separately.
 
 - *Latest* is last in list order. `at` is not consulted.
 - Action names are compared as exact, case-sensitive text. A review for any

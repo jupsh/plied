@@ -40,6 +40,106 @@ fn no_applicable_commitment_passes_the_gate() {
 }
 
 #[test]
+fn an_empty_gate_is_usage_but_a_real_node_with_no_commitments_passes() {
+    let p = two_threads();
+    let out = p.run(&["review", "--action", "run:1", "--gate", "--json"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(envelope(&out)["status"], "usage");
+    assert_eq!(gate(&p, "T001", "run:1"), Some(0));
+    commitment(&p, &["nodes=[T001]"]);
+    assert_eq!(p.code(&["review", "--action", "run:1", "--gate"]), Some(2));
+    assert_eq!(gate(&p, "T001", "run:1"), Some(6));
+}
+
+#[test]
+fn a_missing_or_malformed_latest_disposition_holds_only_its_gate() {
+    let p = two_threads();
+    commitment(&p, &["nodes=[T001]"]);
+    dispose(&p, "run:1", "satisfied");
+    let file = "plied/commitments/P01-review-first.md";
+    let original = std::fs::read_to_string(p.path().join(file)).unwrap();
+    for bad in ["disposition: blcoks", "disposition: \"\"", "disposition: []", ""] {
+        std::fs::write(p.path().join(file), original.replace("disposition: satisfied", bad)).unwrap();
+        let out = p.run(&["review", "T001", "--action", "run:1", "--gate", "--json"]);
+        assert_eq!(out.status.code(), Some(6), "{}", text(&out));
+        assert!(envelope(&out)["result"]["gate"]["reasons"][0].as_str().unwrap().contains("invalid disposition"));
+        assert_eq!(gate(&p, "T002", "run:1"), Some(0), "unrelated errors do not close this gate");
+    }
+    std::fs::write(p.path().join(file), original).unwrap();
+    for d in ["acting", "not-triggered", "not-applicable", "satisfied", "blocks"] {
+        dispose(&p, "run:1", d);
+        assert_eq!(gate(&p, "T001", "run:1"), Some(if d == "blocks" { 6 } else { 0 }));
+    }
+}
+
+#[test]
+fn git_guards_detect_quoted_paths_and_accept_written_revisions() {
+    let mut roots = vec!["café"];
+    if cfg!(unix) { roots.push("with\ttab\nand-newline"); }
+    for root in roots {
+        let p = Proj::new();
+        p.edit("plied.toml", "root = \"plied\"", &format!("root = {}", serde_json::to_string(root).unwrap()));
+        p.ok(&["new", "thread", "--title", "First"]);
+        p.git(&["add", "-A"]);
+        assert_eq!(p.code(&["guard", "pre-commit"]), Some(0));
+        p.git(&["commit", "-qm", "first"]);
+        p.git(&["branch", "before"]);
+        p.edit(&format!("{root}/threads/T001-first.md"), "title: First", "title: Hand edited");
+        p.git(&["add", "-A"]);
+        assert_eq!(p.code(&["guard", "pre-commit"]), Some(5), "{root:?}");
+        p.git(&["commit", "-qm", "hand edit"]);
+        assert_eq!(p.code(&["guard", "range", "before", "HEAD"]), Some(5), "{root:?}");
+        assert_eq!(p.code(&["guard", "range", "HEAD", "HEAD"]), Some(0));
+    }
+}
+
+#[test]
+fn checked_writes_preserve_review_and_scan_history_as_a_prefix() {
+    use plied::doc::Node;
+    fn exercise(p: &Proj, id: &str, field: &str) {
+        let shown = envelope(&p.run(&["show", id, "--json"]));
+        let (fm, body) = plied::yamlish::split_frontmatter(shown["result"]["text"].as_str().unwrap()).unwrap();
+        let meta = plied::yamlish::parse(&fm.unwrap()).unwrap();
+        let items = meta[field].items().to_vec();
+        assert_eq!(items.len(), 2);
+        let mut reordered = items.clone(); reordered.reverse();
+        let mut modified = items.clone();
+        let Node::Map(first) = &mut modified[0] else { panic!("expected mapping") };
+        first.insert("because".into(), Node::Str("rewritten".into()));
+        assert_eq!(p.set(id, &[&format!("{field}=")]).status.code(), Some(4));
+        let rev = p.rev(id);
+        let kind = plied::records::OwnKind::parse(shown["result"]["kind"].as_str().unwrap()).unwrap();
+        let input = p.path().join("replacement.md");
+        for next in [vec![items[0].clone()], reordered, modified] {
+            let mut changed = meta.clone(); changed.insert(field.into(), Node::List(next));
+            std::fs::write(&input, plied::records::render(kind, &changed, &body)).unwrap();
+            let out = p.run(&["replace", id, input.to_str().unwrap(), "--expect", &rev, "--json"]);
+            assert_eq!(out.status.code(), Some(4), "{}", text(&out));
+            assert_eq!(envelope(&out)["error"]["detail"]["diagnostics"][0]["code"], "append-only");
+            assert_eq!(p.rev(id), rev);
+        }
+        let mut appended = items.clone();
+        let mut extra = items[1].clone();
+        let Node::Map(last) = &mut extra else { panic!("expected mapping") };
+        last.insert("because".into(), Node::Str("appended correction".into()));
+        appended.push(extra);
+        let mut changed = meta; changed.insert(field.into(), Node::List(appended));
+        std::fs::write(&input, plied::records::render(kind, &changed, &body)).unwrap();
+        let out = p.run(&["replace", id, input.to_str().unwrap(), "--expect", &rev]);
+        assert!(out.status.success(), "{}", text(&out));
+        assert_eq!(envelope(&p.run(&["show", id, "--json"]))["result"][field].as_array().unwrap().len(), 3);
+    }
+    let p = two_threads(); commitment(&p, &["nodes=[T001]"]);
+    dispose(&p, "run:1", "blocks"); dispose(&p, "run:2", "satisfied");
+    exercise(&p, "P01", "reviews");
+    let p = scanned_note();
+    assert!(scan(&p, &p.rev("N001")).status.success());
+    p.edit("notes/N001.md", "last week", "yesterday");
+    assert!(scan(&p, &p.rev("N001")).status.success());
+    exercise(&p, "T001", "scanned");
+}
+
+#[test]
 fn attachment_by_nodes_by_links_and_through_dependencies() {
     let p = two_threads();
     commitment(&p, &["nodes=[T001]"]);

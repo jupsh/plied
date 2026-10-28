@@ -135,6 +135,8 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   `plied review <node>` (no `--gate`) and read the list. A step written down
   earlier is not a step reviewed: commitments may have been made since, and
   the plan may never have been gated.
+- `--gate` requires at least one node and `--action`; omitting a node list is
+  a usage error (exit 2). A missing or invalid latest disposition holds the gate.
 - The gate examines only the nodes you name. Name every node the action
   depends on or produces results for (`plied review T001 T004 T009 …`), not
   only the one you are on: a commitment attached to a node you left out

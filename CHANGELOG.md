@@ -6,6 +6,14 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Git guards check Unicode and embedded whitespace paths; checked writes
+  preserve review and scan history; review gates require a node and reject
+  missing or malformed dispositions.
+  ([#59](https://github.com/jupsh/plied/issues/59),
+  [#60](https://github.com/jupsh/plied/issues/60),
+  [#61](https://github.com/jupsh/plied/issues/61),
+  [#62](https://github.com/jupsh/plied/issues/62))
+
 - Initialize the canonical checkout from linked worktrees, resolve relative
   command input files against `-C`, and refuse `release --this-session` when
   no session is set. Empty session variables fall through to the next source.
