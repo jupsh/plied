@@ -1,0 +1,503 @@
+{
+  "v": 1,
+  "fixture_sha256": "0251f47be1a76f9fc5577f476bc105e84af8614e2437abc4baf9c7230ae4ebc8",
+  "limit": "Eight authored synthetic queries; retrieval only. Applicability and agent productivity are not evaluated.",
+  "modes": {
+    "lexical": {
+      "recall_at_3": 0.875,
+      "mrr_at_5": 0.875,
+      "queries": [
+        {
+          "case": "renamed",
+          "query": "Does u squared plus v squared equal three have whole-number solutions?",
+          "relevant": [
+            "E001"
+          ],
+          "retrieved": [
+            "E004"
+          ],
+          "first_relevant_rank": null,
+          "elapsed_seconds": 0.0509,
+          "model": null
+        },
+        {
+          "case": "subset",
+          "query": "Can enforcing an even x evade the integer impossibility for x*x+y*y=3?",
+          "relevant": [
+            "E001"
+          ],
+          "retrieved": [
+            "E001",
+            "E003",
+            "E008",
+            "E005",
+            "E004"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.0746,
+          "model": null
+        },
+        {
+          "case": "changed_premise",
+          "query": "Which earlier restriction matters if I allow real rather than integer coordinates in x^2+y^2=3?",
+          "relevant": [
+            "E001"
+          ],
+          "retrieved": [
+            "E001",
+            "E007",
+            "E008"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.0454,
+          "model": null
+        },
+        {
+          "case": "mask_paraphrase",
+          "query": "Can dropping complete residue classes beat the best point arrangement on the same hyperbola?",
+          "relevant": [
+            "E002"
+          ],
+          "retrieved": [
+            "E002",
+            "E007",
+            "E003",
+            "E004",
+            "E005"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.059,
+          "model": null
+        },
+        {
+          "case": "heuristic",
+          "query": "Is testing another optimizer step size actually forbidden by my operator?",
+          "relevant": [
+            "E003"
+          ],
+          "retrieved": [
+            "E003",
+            "E006",
+            "E005",
+            "E002"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.0544,
+          "model": null
+        },
+        {
+          "case": "instrument",
+          "query": "Our readout cannot see a known injected signal. Can its silence refute the mechanism?",
+          "relevant": [
+            "E004"
+          ],
+          "retrieved": [
+            "E004",
+            "E003",
+            "E005",
+            "E008",
+            "E001"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.0505,
+          "model": null
+        },
+        {
+          "case": "alias",
+          "query": "Where did we count timed meetings between participants?",
+          "relevant": [
+            "E007"
+          ],
+          "retrieved": [
+            "E007",
+            "E003"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.0481,
+          "model": null
+        },
+        {
+          "case": "correction",
+          "query": "Which no-gain conclusion was retracted after an arithmetic normalization mistake?",
+          "relevant": [
+            "E008"
+          ],
+          "retrieved": [
+            "E008",
+            "E003",
+            "E005",
+            "E002",
+            "E001"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.0566,
+          "model": null
+        }
+      ]
+    },
+    "semantic": {
+      "recall_at_3": 1.0,
+      "mrr_at_5": 1.0,
+      "queries": [
+        {
+          "case": "renamed",
+          "query": "Does u squared plus v squared equal three have whole-number solutions?",
+          "relevant": [
+            "E001"
+          ],
+          "retrieved": [
+            "E001",
+            "E008",
+            "E002",
+            "E005",
+            "E006"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.9723,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "subset",
+          "query": "Can enforcing an even x evade the integer impossibility for x*x+y*y=3?",
+          "relevant": [
+            "E001"
+          ],
+          "retrieved": [
+            "E001",
+            "E008",
+            "E002",
+            "E003",
+            "E005"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 1.1222,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "changed_premise",
+          "query": "Which earlier restriction matters if I allow real rather than integer coordinates in x^2+y^2=3?",
+          "relevant": [
+            "E001"
+          ],
+          "retrieved": [
+            "E001",
+            "E008",
+            "E002",
+            "E005",
+            "E003"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.9102,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "mask_paraphrase",
+          "query": "Can dropping complete residue classes beat the best point arrangement on the same hyperbola?",
+          "relevant": [
+            "E002"
+          ],
+          "retrieved": [
+            "E002",
+            "E001",
+            "E008",
+            "E003",
+            "E005"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.9369,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "heuristic",
+          "query": "Is testing another optimizer step size actually forbidden by my operator?",
+          "relevant": [
+            "E003"
+          ],
+          "retrieved": [
+            "E003",
+            "E008",
+            "E005",
+            "E006",
+            "E004"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.8898,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "instrument",
+          "query": "Our readout cannot see a known injected signal. Can its silence refute the mechanism?",
+          "relevant": [
+            "E004"
+          ],
+          "retrieved": [
+            "E004",
+            "E005",
+            "E008",
+            "E006",
+            "E001"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.9987,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "alias",
+          "query": "Where did we count timed meetings between participants?",
+          "relevant": [
+            "E007"
+          ],
+          "retrieved": [
+            "E007",
+            "E008",
+            "E001",
+            "E005",
+            "E004"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 1.0163,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "correction",
+          "query": "Which no-gain conclusion was retracted after an arithmetic normalization mistake?",
+          "relevant": [
+            "E008"
+          ],
+          "retrieved": [
+            "E008",
+            "E005",
+            "E004",
+            "E002",
+            "E003"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 1.0543,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        }
+      ]
+    },
+    "hybrid": {
+      "recall_at_3": 1.0,
+      "mrr_at_5": 0.9375,
+      "queries": [
+        {
+          "case": "renamed",
+          "query": "Does u squared plus v squared equal three have whole-number solutions?",
+          "relevant": [
+            "E001"
+          ],
+          "retrieved": [
+            "E004",
+            "E001",
+            "E008",
+            "E002",
+            "E005"
+          ],
+          "first_relevant_rank": 2,
+          "elapsed_seconds": 1.0124,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "subset",
+          "query": "Can enforcing an even x evade the integer impossibility for x*x+y*y=3?",
+          "relevant": [
+            "E001"
+          ],
+          "retrieved": [
+            "E001",
+            "E008",
+            "E003",
+            "E005",
+            "E002"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.9666,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "changed_premise",
+          "query": "Which earlier restriction matters if I allow real rather than integer coordinates in x^2+y^2=3?",
+          "relevant": [
+            "E001"
+          ],
+          "retrieved": [
+            "E001",
+            "E008",
+            "E007",
+            "E002",
+            "E005"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 1.0144,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "mask_paraphrase",
+          "query": "Can dropping complete residue classes beat the best point arrangement on the same hyperbola?",
+          "relevant": [
+            "E002"
+          ],
+          "retrieved": [
+            "E002",
+            "E003",
+            "E001",
+            "E007",
+            "E008"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.9145,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "heuristic",
+          "query": "Is testing another optimizer step size actually forbidden by my operator?",
+          "relevant": [
+            "E003"
+          ],
+          "retrieved": [
+            "E003",
+            "E006",
+            "E005",
+            "E002",
+            "E008"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.8638,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "instrument",
+          "query": "Our readout cannot see a known injected signal. Can its silence refute the mechanism?",
+          "relevant": [
+            "E004"
+          ],
+          "retrieved": [
+            "E004",
+            "E005",
+            "E008",
+            "E003",
+            "E001"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.906,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "alias",
+          "query": "Where did we count timed meetings between participants?",
+          "relevant": [
+            "E007"
+          ],
+          "retrieved": [
+            "E007",
+            "E003",
+            "E008",
+            "E001",
+            "E005"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.8539,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        },
+        {
+          "case": "correction",
+          "query": "Which no-gain conclusion was retracted after an arithmetic normalization mistake?",
+          "relevant": [
+            "E008"
+          ],
+          "retrieved": [
+            "E008",
+            "E005",
+            "E003",
+            "E002",
+            "E004"
+          ],
+          "first_relevant_rank": 1,
+          "elapsed_seconds": 0.8833,
+          "model": {
+            "name": "sentence-transformers/all-MiniLM-L6-v2",
+            "fastembed": "0.9.1",
+            "artifacts_sha256": "9f45c0e72f1406487d8890a777fb80e809ede899b5e01f9cc0c63a57d4a5f5ef",
+            "adapter": 1
+          }
+        }
+      ]
+    }
+  }
+}
