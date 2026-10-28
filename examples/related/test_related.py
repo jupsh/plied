@@ -80,6 +80,21 @@ print(json.dumps({"model":{"name":"fixture"},"query":[1,0],"documents":[[1,0] fo
         self.hybrid()
         self.assertNotIn("HISTORY_SENTINEL", (self.root / "received.json").read_text())
 
+    def test_thread_summary_and_original_details_are_both_retrievable(self):
+        config = self.root / "plied.toml"
+        config.write_text(config.read_text().replace('include = ["notes/**/*.md"]',
+            'include = ["notes/**/*.md", "plied/**/*.md"]'))
+        (self.root / "body.md").write_text("## Summary\nInteger case only; real case unresolved.\n\n## Evidence\nDETAIL_SENTINEL modulo-four proof and conditions.")
+        subprocess.run([ARGS.plied, "-C", str(self.root), "new", "thread", "--title", "Scoped result",
+                        "--body", "body.md", "--as", "tester"], check=True, capture_output=True)
+        out = self.hybrid()
+        received = (self.root / "received.json").read_text()
+        self.assertIn("Integer case only; real case unresolved.", received)
+        self.assertIn("DETAIL_SENTINEL", received)
+        candidate = next(p for p in out["candidates"] if p["id"] == "T001")
+        self.assertEqual(candidate["body_summary"], "Integer case only; real case unresolved.")
+        self.assertEqual(candidate["applicability"], "unassessed")
+
     def test_retrieval_preserves_record_and_configuration_bytes(self):
         before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file() and p.suffix in [".md", ".toml"]}
         self.hybrid()
