@@ -6,6 +6,13 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Add read-only `context` and `schema` discovery for installed-tool users,
+  including project paths, compatibility, identity, vocabularies, fields,
+  nested keys, constraints and valid example records. JSON `show` links the
+  node conversation and includes presence. No sealed records are enumerated.
+  ([#47](https://github.com/jupsh/plied/issues/47),
+  [#48](https://github.com/jupsh/plied/issues/48))
+
 - Check both aliases and targets when loading own records. Reject escaping
   record directories, unsafe ID prefixes and write destinations; ensure each
   proposed record entered validation. Read generated literature pages from

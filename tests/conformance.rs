@@ -505,6 +505,75 @@ fn envelope(out: &std::process::Output) -> serde_json::Value {
 }
 
 #[test]
+fn discovery_works_without_configuration_and_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    for args in [&["context"][..], &["schema", "thread"][..], &["schema", "commitment"][..], &["schema", "question"][..]] {
+        let out = std::process::Command::new(bin()).arg("-C").arg(dir.path()).args(args).arg("--json").output().unwrap();
+        assert!(out.status.success(), "{}", text(&out));
+        assert_eq!(envelope(&out)["result"]["configured"], false);
+    }
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn context_and_show_expose_node_conversation_and_presence_without_sealed_records() {
+    let p = two_threads();
+    p.append_config("[checks]\nactors = [\"alice\", \"bob\"]\naction_kinds = [\"run\", \"report\"]\n");
+    p.ok(&["claim", "T001"]);
+    p.edit("plied.toml", "sealed = []", "sealed = [\"T002-second\"]");
+    let context = envelope(&p.run(&["context", "T001", "--json"]));
+    let r = &context["result"];
+    assert_eq!(r["configured"], true);
+    assert_eq!(std::fs::canonicalize(r["canonical"].as_str().unwrap()).unwrap(), p.path().canonicalize().unwrap());
+    assert_eq!(r["vocabularies"]["actors"], serde_json::json!(["alice", "bob"]));
+    assert_eq!(r["vocabularies"]["action_kinds"], serde_json::json!(["run", "report"]));
+    assert_eq!(r["identity"]["agent"], "alice");
+    assert_eq!(r["identity"]["session"], "sess12345678");
+    assert_eq!(r["node"]["messages_args"], serde_json::json!(["messages", "T001"]));
+    assert_eq!(r["node"]["claims"][0]["agent"], "alice");
+    assert!(!context.to_string().contains("T002"));
+    assert_eq!(envelope(&p.run(&["show", "T001", "--json"]))["result"]["messages_args"], r["node"]["messages_args"]);
+    p.git(&["add", "-A"]); p.git(&["commit", "-qm", "records"]);
+    let linked = tempfile::tempdir().unwrap();
+    p.git(&["worktree", "add", "-qb", "feature", linked.path().to_str().unwrap()]);
+    let out = std::process::Command::new(bin()).arg("-C").arg(linked.path()).args(["context", "--json"]).output().unwrap();
+    let r = envelope(&out);
+    assert_eq!(std::fs::canonicalize(r["result"]["canonical"].as_str().unwrap()).unwrap(), p.path().canonicalize().unwrap());
+    assert_eq!(std::fs::canonicalize(r["result"]["here"].as_str().unwrap()).unwrap(), linked.path().canonicalize().unwrap());
+    let runtime = p.path().join(".git/plied");
+    let before: Vec<_> = std::fs::read_dir(&runtime).unwrap().map(|e| { let e=e.unwrap(); (e.file_name(), std::fs::metadata(e.path()).unwrap().modified().unwrap()) }).collect();
+    p.ok(&["context", "T001", "--json"]); p.ok(&["schema", "thread", "--json"]);
+    let after: Vec<_> = std::fs::read_dir(&runtime).unwrap().map(|e| { let e=e.unwrap(); (e.file_name(), std::fs::metadata(e.path()).unwrap().modified().unwrap()) }).collect();
+    assert_eq!(before, after, "discovery must not create locks, cache revisions or update presence");
+}
+
+#[test]
+fn schema_examples_create_valid_records_with_configured_prefixes() {
+    for kind in plied::records::OwnKind::KINDS {
+        let p = Proj::new();
+        p.append_config("[ids.thread]\nprefix = \"Work\"\n[checks]\nactors = [\"alice\"]\naction_kinds = [\"run\"]\n");
+        let out = envelope(&p.run(&["schema", kind.name(), "--json"]));
+        let schema = &out["result"];
+        let fields = schema["fields"].as_array().unwrap();
+        assert_eq!(fields.len(), kind.fields().len());
+        for (i, example) in schema["example_records"].as_array().unwrap().iter().enumerate() {
+            let record_kind = if i == 0 { "thread" } else { kind.name() };
+            let mut args = vec!["new".to_string(), record_kind.to_string(), "--title".to_string(), example["title"].as_str().unwrap().to_string()];
+            for (field, value) in example.as_object().unwrap() {
+                if matches!(field.as_str(), "id" | "title") { continue; }
+                args.push(format!("{field}={}", value.as_str().map(String::from).unwrap_or_else(|| value.to_string())));
+            }
+            p.ok(&args.iter().map(String::as_str).collect::<Vec<_>>());
+        }
+        assert_eq!(p.code(&["check"]), Some(0));
+        if kind == plied::records::OwnKind::Thread {
+            assert_eq!(fields.iter().find(|f| f["name"] == "actor").unwrap()["values"], serde_json::json!(["alice"]));
+            assert_eq!(p.rev("Work001").len(), 64);
+        }
+    }
+}
+
+#[test]
 fn session_scoped_release_requires_a_session_and_preserves_other_sessions() {
     let p = two_threads();
     p.ok(&["claim", "T001", "--session", "one"]);

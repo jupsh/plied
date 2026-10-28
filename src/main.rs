@@ -54,6 +54,17 @@ enum Cmd {
     Init,
     /// print the agent skill for this version (needs no repository)
     Skill,
+    /// discover project paths, configuration, identity and capabilities without writing
+    Context {
+        node: Option<String>,
+        #[command(flatten)]
+        who: WhoArgs,
+    },
+    /// discover record fields, constraints, examples and configured vocabularies
+    Schema {
+        #[arg(value_parser = ["thread", "commitment", "question"])]
+        kind: String,
+    },
     /// show a record with its revision, links, backlinks, commitments and presence
     Show { id: String },
     /// create a record
@@ -493,6 +504,8 @@ fn real_main() -> i32 {
 fn run(cli: &Cli) -> Res<i32> {
     match &cli.cmd {
         Cmd::Init => cmd_init(cli),
+        Cmd::Context { node, who } => cmd_context(cli, node.as_deref(), who),
+        Cmd::Schema { kind } => cmd_schema(cli, OwnKind::parse(kind).unwrap()),
         // no repository: the skill describes this binary, wherever it runs
         Cmd::Skill => {
             let text = skill_text();
@@ -757,6 +770,61 @@ fn subscribe(ctx: &Ctx, node: &str, who_args: &WhoArgs, on: bool, json: bool) ->
 
 // --------------------------------------------------------------------------- commands
 
+fn discovery_repo(cli: &Cli) -> Res<Option<Repo>> {
+    let path = repo::configuration_path(cli.c.as_deref(), cli.config.as_deref())?;
+    if path.exists() { repo::locate(cli.c.as_deref(), cli.config.as_deref()).map(Some) } else { Ok(None) }
+}
+
+fn print_discovery(value: Value, json: bool) -> Res<i32> {
+    if json { out_json(&value); } else { outln!("{}", serde_json::to_string_pretty(&value)?); }
+    Ok(0)
+}
+
+fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
+    let who = who_of(args, false)?;
+    let configuration = repo::configuration_path(cli.c.as_deref(), cli.config.as_deref())?;
+    let capabilities = json!({"pdf": cfg!(feature = "pdf"), "record_kinds": ["thread", "commitment", "question"],
+        "discovery": ["context", "schema"], "guidance": ["--help", "skill"]});
+    let identity = json!({"agent": if who.agent.is_empty() { None } else { Some(&who.agent) }, "session": who.session});
+    let Some(repo) = discovery_repo(cli)? else {
+        let canonical = configuration.parent().unwrap_or_else(|| Path::new("."));
+        return print_discovery(json!({"version": plied::VERSION, "configured": false, "canonical": canonical,
+            "configuration": {"path": configuration, "format": null, "requires": null, "compatible": null},
+            "here": fsx::resolve(cli.c.as_deref().unwrap_or_else(|| Path::new("."))),
+            "runtime": null, "branch": null, "canonical_branch": null,
+            "write_blockers": ["no plied.toml; initialize the selected canonical checkout with plied init"],
+            "identity": identity, "vocabularies": plied::schema::vocabularies(None), "linked_sources": [],
+            "capabilities": capabilities, "next": "plied init", "node": null}), cli.json);
+    };
+    let cfg = &repo.cfg;
+    let mut blockers = repo.write_blockers();
+    blockers.extend(cfg.compat_problems().into_iter().map(|(_, message)| message));
+    let mut value = json!({"version": plied::VERSION, "configured": true, "canonical": repo.canonical,
+        "here": repo.here, "runtime": repo.runtime,
+        "configuration": {"path": cfg.path, "format": cfg.format, "requires": cfg.requires.as_ref().map(ToString::to_string), "compatible": cfg.compat_problems().is_empty()},
+        "branch": repo.branch(), "canonical_branch": cfg.canonical_branch, "write_blockers": blockers,
+        "identity": identity, "vocabularies": plied::schema::vocabularies(Some(cfg)),
+        "linked_sources": cfg.sources.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), "capabilities": capabilities, "node": null});
+    if let Some(id) = node {
+        let policy = Rc::new(Policy::new(cfg)?);
+        let ctx = Ctx { lock: FileLock::new(repo.runtime.join("lock"), 15.0), repo, policy };
+        let st = ctx.store()?;
+        let r = st.get(id).ok_or_else(|| Fail::new(format!("no record {id}")))?;
+        value["node"] = json!({"id": r.id, "show_args": ["show", r.id], "messages_args": ["messages", r.id],
+            "claims": node_claims(&ctx, &r.id), "commitments": commitments_json(&node_commitments(&st, r))});
+    }
+    print_discovery(value, cli.json)
+}
+
+fn cmd_schema(cli: &Cli, kind: OwnKind) -> Res<i32> {
+    let repo = discovery_repo(cli)?;
+    print_discovery(plied::schema::describe(kind, repo.as_ref().map(|r| r.cfg.as_ref())), cli.json)
+}
+
+fn node_claims(ctx: &Ctx, id: &str) -> Vec<Value> {
+    ctx.messages().claims(false).iter().filter(|c| c.node == id).map(|c| c.to_json()).collect()
+}
+
 fn cmd_init(cli: &Cli) -> Res<i32> {
     let start = cli.c.clone().unwrap_or_else(|| PathBuf::from("."));
     let base = repo::init_base(&start)?;
@@ -868,6 +936,8 @@ fn cmd_show(ctx: &Ctx, id: &str, json: bool) -> Res<i32> {
     if json {
         let mut o = r.to_json(&ctx.repo.cfg.base);
         o.insert("backlinks".into(), Value::Array(backlinks(&st, &r.id).iter().map(|(i, h)| json!({"id": i, "how": h})).collect()));
+        o.insert("messages_args".into(), json!(["messages", r.id]));
+        o.insert("claims".into(), json!(node_claims(ctx, &r.id)));
         if takes_commitments(r) {
             o.insert("commitments".into(), commitments_json(&node_commitments(&st, r)));
         }
