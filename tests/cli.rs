@@ -242,6 +242,10 @@ fn skill_is_generated_by_the_binary_outside_a_repo() {
     assert!(skill.contains(&format!("plied {}", env!("CARGO_PKG_VERSION"))), "generated for this version:\n{skill}");
     for needle in [
         "result.rev",          // the show -> --expect cycle, read from the JSON envelope
+        "PLIED_SESSION",      // session-scoped handoff begins with a session
+        "plied context --json",
+        "plied schema thread --json",
+        "plied messages \"$NODE\"",
         "--expect <rev>",      // every write names the revision it read
         "re-read",             // batch writes chain revs, never reuse one
         "nodes=[T001, T002]",  // list assignment on `new`
@@ -289,6 +293,18 @@ fn skill_is_generated_by_the_binary_outside_a_repo() {
 
     // no command at all is still a usage error, as before
     assert_eq!(run(&[]).status.code(), Some(2));
+}
+
+#[test]
+fn installed_help_provides_a_task_map_and_all_five_citation_aspects() {
+    let out = std::process::Command::new(bin()).arg("--help").output().unwrap();
+    let help = text(&out);
+    assert!(out.status.success());
+    for task in ["Orient", "Update", "Review", "Communicate", "Recover", "context", "schema"] {
+        assert!(help.contains(task), "{help}");
+    }
+    let out = std::process::Command::new(bin()).args(["lit", "--help"]).output().unwrap();
+    assert!(text(&out).contains("quotation and image claim"), "{}", text(&out));
 }
 
 #[test]

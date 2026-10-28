@@ -6,6 +6,19 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Make installed-tool onboarding task-oriented and explicit about sessions,
+  node conversations, renewal, checked writes and handoff. Add an executable
+  first-task example and nonzero-JSON client, recovery cookbook, contributor
+  orientation and development guide. CI replays the new workflow; literature
+  help names all five checks and installation guidance explains pdfium.
+  ([#46](https://github.com/jupsh/plied/issues/46),
+  [#49](https://github.com/jupsh/plied/issues/49),
+  [#50](https://github.com/jupsh/plied/issues/50),
+  [#51](https://github.com/jupsh/plied/issues/51),
+  [#52](https://github.com/jupsh/plied/issues/52),
+  [#63](https://github.com/jupsh/plied/issues/63),
+  [#64](https://github.com/jupsh/plied/issues/64))
+
 - Add read-only `context` and `schema` discovery for installed-tool users,
   including project paths, compatibility, identity, vocabularies, fields,
   nested keys, constraints and valid example records. JSON `show` links the

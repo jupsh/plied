@@ -31,15 +31,43 @@ checked, appends a history line, and names the revision it was made against.
 ## Orient
 
 ```sh
-export PLIED_AGENT=<your-name>        # or pass --as on every command
+export PLIED_AGENT=your-name          # or pass --as on every command
+export PLIED_SESSION="$(date -u +%Y%m%dT%H%M%SZ)-$$"  # unique to this shell session
+plied context --json                 # selected store, blockers, identity and vocabularies
+plied schema thread --json           # fields, required conditions and example records
+```
+
+Choose the actual node named in your task; use `frontier`/`tree` if no node
+was supplied. Below, `NODE` means that actual ID, never an assumed first ID.
+Set it in your shell before running the sequence. Check `context`'s actor
+and action vocabularies before assigning either; agent identity and the
+scheduled actor are separate. Missing configuration: run `plied init` at
+the selected canonical checkout, then inspect `context` again.
+
+```sh
 plied --json check                    # baseline: know the errors you did not make
                                       # (failing check = exit 1, report still in result.diagnostics)
 plied --json frontier                 # queues by actor, unscheduled threads, open questions, dates
 plied --json tree                     # the whole work tree
-plied claim T001                      # say you are on a node before working it;
-                                      # it lists the commitments that apply: read them
+plied show "$NODE" --json             # read text and its revision together; retain both
+plied messages "$NODE"               # earlier conversation does not retarget to a new claimant
+plied review "$NODE"                 # read every applicable commitment before acting
+plied claim "$NODE"                  # presence; also lists the commitments that apply
 plied inbox --peek                    # --peek first: plain `inbox` marks read
 ```
+
+Claims expire after the configured lease. Without the Claude hook, renew by
+running `claim` again with the same agent/session before expiry. Use the
+revision you read with the text for your next checked write; the detailed
+show → --expect cycle follows. Before handing off, record what remains and
+where, then release only this session (`release --this-session` requires a
+nonempty session). New sessions get new IDs, even for the same agent.
+
+Task map: **Orient** (`context`, `schema`, `show`, `messages`); **Update**
+(`new`, `set`, `note`, `replace`); **Review** (`review`, `dispose`, `check`);
+**Communicate** (`claim`, `send`, `inbox`, `release`); **Recover** (`show`
+after exit 3, `recover` for interrupted writes, `index` for a changed policy).
+`--help` groups commands by task; `COMMAND --help` gives exact arguments.
 
 The frontier is only as true as `actor` and `next`. When you take up a
 thread, set them (`actor=<you> next=1`; `actor` must be one of
@@ -292,6 +320,15 @@ later).
 Meanings: 1 error or failed check · 2 usage · 3 conflict (the record moved
 on since `--expect`) · 4 the change would add validation errors · 5 blocked
 (branch, merge state, version pin, guard refusal) · 6 review gate.
+
+Under `--json`, parse stdout even on nonzero exits. A failed verdict has
+`result` (for example `result.diagnostics` or `result.gate.reasons`); a
+command failure has `error` (a conflict or refused write may have
+`error.detail`). Exit 3: re-read text, reconcile and retry. Exit 4: inspect
+the added diagnostics and correct the proposed change. Exit 5: inspect
+`context` and the pending intent; resolve branch/version blockers before
+`recover`. Exit 6: read the applicable commitments and record an honest
+disposition for that exact action. Never treat a nonzero exit as missing JSON.
 
 ## Commands (generated from this binary)
 

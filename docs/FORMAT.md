@@ -909,6 +909,13 @@ A malformed query exits 2.
 
 ### 11.2 Read-only discovery
 
+Top-level help includes a task map (orientation, updates, review,
+communication and recovery). The generated skill starts with project/schema
+discovery, an explicit session, the instructed node's text and conversation,
+and applicable commitments before a claim. Its text and examples are
+guidance rather than an additional write protocol; all writes keep the
+per-record revision requirements above.
+
 `context [NODE]` returns `{version, configured, canonical, here, runtime,
 configuration, branch, canonical_branch, write_blockers, identity,
 vocabularies, linked_sources, capabilities, node}`. `configuration` holds

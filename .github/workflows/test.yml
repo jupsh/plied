@@ -17,6 +17,9 @@ jobs:
       - name: Replay the worked research example
         if: runner.os == 'Linux'
         run: python3 examples/research/replay.py --plied "$PWD/target/debug/plied"
+      - name: Replay the first-task onboarding workflow
+        if: runner.os == 'Linux'
+        run: python3 examples/first-task/replay.py --plied "$PWD/target/debug/plied"
   pdf:
     runs-on: ubuntu-latest
     steps:
