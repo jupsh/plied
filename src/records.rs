@@ -211,6 +211,11 @@ impl Record {
         doc::text(&self.meta, f).unwrap_or_default()
     }
 
+    /// A thread's optional body synopsis, not a field or an assessed conclusion.
+    pub fn body_summary(&self) -> Option<String> {
+        self.is(OwnKind::Thread).then(|| crate::summary::extract(&self.body)).flatten()
+    }
+
     /// The status or state field's value.
     pub fn state(&self) -> Option<&Node> {
         let f = match &self.kind {
@@ -324,6 +329,9 @@ impl Record {
         o.insert("body".into(), Value::from(self.body.clone()));
         o.insert("text".into(), Value::from(self.text.clone()));
         o.insert("own".into(), Value::from(self.is_own()));
+        if self.is(OwnKind::Thread) {
+            o.insert("body_summary".into(), self.body_summary().map_or(Value::Null, Value::from));
+        }
         o
     }
 }
