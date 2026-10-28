@@ -13,6 +13,7 @@ are versioned separately from plied itself; see
 - Add an optional `related` companion example for passage-level BM25 and
   local semantic retrieval, with ranked source excerpts and raw-byte revisions.
   Retrieval is advisory and has no record-writing or gate authority.
+  History headings inside code examples do not hide later source passages.
 
 ## 0.9.0 — 2026-10-28
 

@@ -28,8 +28,9 @@ exclude = []
 
 The companion indexes body passages and selected prose fields (outcome,
 commitment wording/summary, reconsideration condition and answer). It omits
-generated History and does not expand citations into paper pages or traverse
-links to otherwise excluded evidence. Each result carries an excerpt from
+generated History (ignoring headings inside fenced or indented code) and does
+not expand citations into paper pages or traverse links to otherwise excluded
+evidence. Each result carries an excerpt from
 the parsed body or named field, record ID, raw-byte revision, relative path
 and section. YAML escapes and line endings may be normalized in the excerpt;
 the revision identifies the original file bytes.
