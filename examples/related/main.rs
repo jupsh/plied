@@ -89,8 +89,9 @@ fn corpus(store: &Store, policy: &Policy) -> Vec<Passage> {
             .collect::<Vec<_>>()
             .join("\n");
         let mut parts = vec![("body", body)];
-        if let Some(summary) = r.body_summary() {
-            parts.push(("body_summary", summary));
+        let body_summary = r.body_summary();
+        if let Some(summary) = &body_summary {
+            parts.push(("body_summary", summary.clone()));
         }
         for name in ["outcome.quote", "wording", "summary", "revisit", "answer"] {
             if let Some(value) = r.get(name).and_then(|n| n.scalar()) {
@@ -108,7 +109,7 @@ fn corpus(store: &Store, policy: &Policy) -> Vec<Passage> {
                     path: fsx::rel(&store.cfg.base, &r.path),
                     revision: r.rev.clone(),
                     section: section.into(),
-                    body_summary: r.body_summary(),
+                    body_summary: body_summary.clone(),
                     text: format!("{}\n{excerpt}", r.title()),
                     excerpt,
                 });
