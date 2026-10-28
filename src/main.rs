@@ -50,7 +50,7 @@ struct WhoArgs {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// write a plied.toml template here
+    /// write a plied.toml template in the canonical checkout (here outside git)
     Init,
     /// print the agent skill for this version (needs no repository)
     Skill,
@@ -159,7 +159,7 @@ enum Cmd {
     /// drop your claim(s)
     Release {
         node: Option<String>,
-        /// only this session's claims
+        /// only this session's claims (requires --session or a session environment variable)
         #[arg(long = "this-session")]
         this_session: bool,
         #[command(flatten)]
@@ -362,9 +362,9 @@ fn who_of(args: &WhoArgs, required: bool) -> Res<Who> {
     let session = args
         .session
         .clone()
-        .or_else(|| std::env::var("PLIED_SESSION").ok())
-        .or_else(|| std::env::var("CLAUDE_CODE_SESSION_ID").ok())
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("PLIED_SESSION").ok().filter(|s| !s.is_empty()))
+        .or_else(|| std::env::var("CLAUDE_CODE_SESSION_ID").ok().filter(|s| !s.is_empty()));
     match agent {
         Some(agent) => Ok(Who { agent, session }),
         None if required => Err(Fail::code(EXIT_USAGE, "who is this? pass --as NAME or set PLIED_AGENT")),
@@ -413,14 +413,18 @@ fn read_stdin() -> Res<String> {
     Ok(s)
 }
 
-fn assignments_of(assign: &[String], set_file: &[String]) -> Res<Vec<String>> {
+fn input_path(cli: &Cli, path: &Path) -> PathBuf {
+    cli.c.as_deref().unwrap_or_else(|| Path::new(".")).join(path)
+}
+
+fn assignments_of(cli: &Cli, assign: &[String], set_file: &[String]) -> Res<Vec<String>> {
     let mut out: Vec<String> = assign.to_vec();
     for item in set_file {
         let (key, path) = match item.split_once('=') {
             Some((k, p)) => (k, p),
             None => return Err(Fail::new(format!("--set-file expects key=FILE, got {item:?}"))),
         };
-        let text = if path == "-" { read_stdin()? } else { fsx::read_text(Path::new(path))? };
+        let text = if path == "-" { read_stdin()? } else { fsx::read_text(&input_path(cli, Path::new(path)))? };
         let text = text.strip_suffix('\n').unwrap_or(&text);
         out.push(format!("{key}={}", serde_json::to_string(text).unwrap_or_default()));
     }
@@ -524,10 +528,10 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             meta.insert("title".into(), Node::Str(title.clone()));
             let def = if kind == OwnKind::Thread { ("status", "open") } else { ("state", "open") };
             meta.insert(def.0.into(), Node::Str(def.1.into()));
-            let assigns = assignments_of(assign, set_file)?;
+            let assigns = assignments_of(cli, assign, set_file)?;
             apply_assignments(&mut meta, &assigns)?;
             let body_text = match body {
-                Some(p) => Some(fsx::read_text(p)?),
+                Some(p) => Some(fsx::read_text(&input_path(cli, p))?),
                 None => None,
             };
             let lib = ctx.library_opt()?;
@@ -541,7 +545,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
         }
         Cmd::Set { id, assign, set_file, expect, why, who } => {
             let who = who_of(who, true)?;
-            let assigns = assignments_of(assign, set_file)?;
+            let assigns = assignments_of(cli, assign, set_file)?;
             let lib = ctx.library_opt()?;
             let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, why.as_deref(), &assigns, None, None, None)?;
             print_updated(id, &rev, json, "updated");
@@ -556,7 +560,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
         }
         Cmd::Replace { id, file, expect, why, who } => {
             let who = who_of(who, true)?;
-            let text = if file == "-" { read_stdin()? } else { fsx::read_text(Path::new(file))? };
+            let text = if file == "-" { read_stdin()? } else { fsx::read_text(&input_path(cli, Path::new(file)))? };
             let lib = ctx.library_opt()?;
             let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, why.as_deref(), &[], None, Some(&text), None)?;
             print_updated(id, &rev, json, "replaced");
@@ -627,6 +631,9 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
         }
         Cmd::Release { node, this_session, who } => {
             let who = who_of(who, true)?;
+            if *this_session && who.session.is_none() {
+                return Err(Fail::code(EXIT_USAGE, "release --this-session needs --session, PLIED_SESSION or CLAUDE_CODE_SESSION_ID"));
+            }
             let n = ctx.messages().release(node.as_deref(), &who.agent, if *this_session { who.session.as_deref() } else { None })?;
             if json {
                 out_json(&json!({"released": n}));
@@ -752,9 +759,8 @@ fn subscribe(ctx: &Ctx, node: &str, who_args: &WhoArgs, on: bool, json: bool) ->
 
 fn cmd_init(cli: &Cli) -> Res<i32> {
     let start = cli.c.clone().unwrap_or_else(|| PathBuf::from("."));
-    let top = repo::git(&start, &["rev-parse", "--show-toplevel"]);
-    let base = top.map(PathBuf::from).unwrap_or_else(|| fsx::resolve(&start));
-    let p = base.join(config::CONFIG_NAME);
+    let base = repo::init_base(&start)?;
+    let p = cli.config.as_deref().map(|p| input_path(cli, p)).unwrap_or_else(|| base.join(config::CONFIG_NAME));
     if p.exists() {
         return Err(Fail::new(format!("{} already exists", p.display())));
     }

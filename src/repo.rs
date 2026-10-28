@@ -80,7 +80,7 @@ impl Repo {
 pub fn locate(start: Option<&Path>, config_path: Option<&Path>) -> Res<Repo> {
     let cwd = std::env::current_dir().map_err(|e| Fail::new(e.to_string()))?;
     let start = fsx::resolve(start.unwrap_or(&cwd));
-    let config_path: Option<PathBuf> = config_path.map(fsx::resolve);
+    let config_path: Option<PathBuf> = config_path.map(|p| fsx::resolve(&start.join(p)));
     let top = git(&start, &["rev-parse", "--show-toplevel"]);
     let Some(top) = top else {
         // outside git: nearest directory upwards holding plied.toml
@@ -104,12 +104,7 @@ pub fn locate(start: Option<&Path>, config_path: Option<&Path>) -> Res<Repo> {
     let common = git(&start, &["rev-parse", "--path-format=absolute", "--git-common-dir"])
         .ok_or_else(|| Fail::new("could not read the git common directory"))?;
     let common_dir = PathBuf::from(&common);
-    let mut canonical = main_worktree(&start, &common_dir)?;
-    if let Ok(v) = std::env::var("PLIED_CANONICAL")
-        && !v.is_empty()
-    {
-        canonical = fsx::resolve(&PathBuf::from(v));
-    }
+    let canonical = canonical_worktree(&start, &common_dir)?;
     let cfg_file = config_path.clone().unwrap_or_else(|| canonical.join(config::CONFIG_NAME));
     if !cfg_file.exists() {
         return Err(Fail::new(format!("no {} in the canonical checkout {} (run `plied init` there)", config::CONFIG_NAME, canonical.display())));
@@ -154,6 +149,26 @@ pub fn locate_fast(start: &Path) -> Option<Repo> {
     }
     let cfg = Rc::new(config::load(&cfg_file, Some(&canonical)).ok()?);
     Some(Repo { canonical, here, runtime: runtime(common.join("plied")), common_dir: Some(common), cfg })
+}
+
+/// Find the initialization destination without requiring a configuration to exist yet.
+pub fn init_base(start: &Path) -> Res<PathBuf> {
+    let start = fsx::resolve(start);
+    if git(&start, &["rev-parse", "--show-toplevel"]).is_none() {
+        return Ok(start);
+    }
+    let common = git(&start, &["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .ok_or_else(|| Fail::new("could not read the git common directory"))?;
+    canonical_worktree(&start, Path::new(&common))
+}
+
+fn canonical_worktree(start: &Path, common_dir: &Path) -> Res<PathBuf> {
+    if let Ok(v) = std::env::var("PLIED_CANONICAL")
+        && !v.is_empty()
+    {
+        return Ok(fsx::resolve(&PathBuf::from(v)));
+    }
+    main_worktree(start, common_dir)
 }
 
 fn main_worktree(start: &Path, common_dir: &Path) -> Res<PathBuf> {
