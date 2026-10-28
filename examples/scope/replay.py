@@ -70,7 +70,8 @@ This is an explicit protocol commitment for this demonstration. A heuristic
 such as 'avoid another parameter sweep by default' should remain prose unless
 the project actually adopts it as an obligation.""")
     source = run("new", "thread", "--title", "Exclude integer solutions",
-                 "links=[E001]", "revisit=Consider a distinct task if the domain or equation changes")['id']
+                 "links=[E001]", "revisit=Consider a distinct task if the domain or equation changes",
+                 "--body", bodyfile("source", "## Summary\nE001 excludes integer pairs, including renamed variables and even-coordinate subsets. A real-domain task needs its own reasoning.\n\n## Evidence\nRead E001 for the modulo-four argument and its integer premise."))['id']
     change("set", source, "status=closed", "outcome.ref=E001",
            "outcome.quote=No integer pair satisfies x^2 + y^2 = 3.")
     original = run("show", source)
@@ -100,8 +101,9 @@ the project actually adopts it as an obligation.""")
     ]
     outcomes = []
     for index, (name, title, mapping, decision, close) in enumerate(cases, start=3):
+        synopsis = decision + " Evidence: E001; preserve its integer-domain scope."
         node = run("new", "thread", "--title", title, f"uses=[{source}]",
-                   "--body", bodyfile(name, mapping))['id']
+                   "--body", bodyfile(name, "## Summary\n" + synopsis + "\n\n## Scope comparison\n" + mapping))['id']
         action = f"decide:{name}"
         run("review", node, "--action", action, "--gate", expected=6)
         ref = f"E{index:03d}"
@@ -114,6 +116,8 @@ the project actually adopts it as an obligation.""")
         else:
             change("set", node, "actor=scope-reviewer", "next=1")
         final = run("show", node)
+        assert final["body_summary"] == synopsis
+        assert mapping in final["body"]  # the synopsis never replaces the detailed reasoning
         expected_state = "closed" if close else "open"
         assert final["status"] == expected_state, final
         outcomes.append({"case": name, "node": node, "authored_decision": decision,
@@ -123,6 +127,9 @@ the project actually adopts it as an obligation.""")
     checked = run("check")
     assert checked["errors"] == checked["warnings"] == 0, checked
     run("tree")
+    frontier = run("frontier")
+    assert frontier["queues"]["scope-reviewer"][0]["body_summary"]
+    assert run("context", outcomes[-1]["node"])["node"]["body_summary"]
     (dest / "trace.json").write_text(json.dumps(trace, indent=2) + "\n")
     summary = {"binary_version": subprocess.check_output([binary, "--version"], text=True).strip(),
                "cases": outcomes, "original_outcome_unchanged": True,
