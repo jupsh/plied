@@ -6,6 +6,11 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Support optional author-written thread synopses in a `## Summary` body
+  section. Expose a read-only `body_summary` in orientation results and
+  bounded previews in the frontier and generated views; index it alongside
+  source passages in the optional retrieval companion. No record field or
+  approval/gate semantics change, and summary freshness is not established.
 - Teach agents to compare objects and necessary assumptions before reusing
   prior outcomes, preserving valid results when a new task changes scope.
   Add a replayable scope example covering aliases, covered subsets and a
