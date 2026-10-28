@@ -4,7 +4,11 @@ All notable changes to plied. The on-disk format and the `--json` envelope
 are versioned separately from plied itself; see
 [FORMAT.md](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md), *Versions*.
 
-## Unreleased
+## 0.9.0 — 2026-10-28
+
+The record format and JSON envelope remain at version 1. This release adds
+discovery commands and tightens write, access and review-gate checks; the
+individual changes and upgrade-sensitive behaviour are listed below.
 
 - Make installed-tool onboarding task-oriented and explicit about sessions,
   node conversations, renewal, checked writes and handoff. Add an executable
