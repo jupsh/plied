@@ -34,6 +34,14 @@ the parsed body or named field, record ID, raw-byte revision, relative path
 and section. YAML escapes and line endings may be normalized in the excerpt;
 the revision identifies the original file bytes.
 
+A thread's optional `## Summary` body section is also indexed as a dedicated
+`body_summary` passage. Every returned thread candidate carries that full
+synopsis (or null) alongside its original source excerpt and revision. Full
+body/evidence passages are retained; the synopsis never replaces them or
+establishes applicability or freshness. Empty or code-example Summary headings
+are ignored according to FORMAT §3.7. Other record kinds keep their existing
+behavior, including the commitment's frontmatter `summary`.
+
 ## Optional local semantic matching
 
 The supplied adapter uses FastEmbed and ONNX on the CPU. Install it in a
