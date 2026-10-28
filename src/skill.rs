@@ -97,11 +97,27 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   are not in the record yet, write the record first — never approximate.
 - Attach with `nodes=[T001, T002]`, or set `applies: subtree` / `project`.
   A `parent` link alone never carries an obligation.
-- A resolved state (`fulfilled`, `waived`, `missed`, `not-triggered`) needs
-  `resolved_by`. A **waived** commitment is authority-checked: `resolved_by`
-  must name a linked decision record (not a plied record) whose authority is
-  accepted and whose scope includes the commitment's own id. "Cannot be
-  verified" is a warning, never a pass.
+- A resolved state (`fulfilled`, `waived`, `missed`, `not-triggered`,
+  `superseded`) needs `resolved_by`. A **waived** or **superseded**
+  commitment is authority-checked: `resolved_by` must name a linked decision
+  record (not a plied record) whose authority is accepted and whose scope
+  includes the commitment's own id. "Cannot be verified" is a warning, never
+  a pass.
+- When a decision replaces a commitment with another (new timing, new
+  wording), record the new one first, then set the old one
+  `state=superseded superseded_by=<new> resolved_by=<decision>` in one write.
+  Not `waived`: a waiver says the obligation is gone, and here it lives on.
+  Attach the new one wherever the old one applied (`check` warns when it does
+  not). Write one commitment per clause: when one clause of a commitment is
+  kept and another replaced, it is superseded, and the `--why` says which
+  clause was kept.
+- `governs=[report]` says a commitment governs only actions of those kinds
+  (from `checks.action_kinds`), so the gate leaves it out of a `run`. Set it
+  from the wording only: a rule about how readings are reported governs
+  `report`, while "before any run" governs `run`. When the wording does not
+  confine itself to a kind, leave `governs` unset. A wrong `governs` opens a
+  gate silently, so `review` still lists the commitments it leaves out: read
+  them.
 - Before any action a commitment could govern (a run, a freeze, closing
   work), gate it:
   `plied review T001 --action run:fit-20261024 --gate` exits 6 until every
@@ -158,6 +174,11 @@ A resolved record (closed thread, fulfilled or waived commitment, answered
 question) goes stale only when the entry names it directly. Then the
 question is whether the entry reopens it: say which in the note, and if it
 does, reopen it in the same write.
+
+`check` reports nodes the entry **names** first (subject `named` under
+`--json`), then nodes it reaches only **through their links** (`links`). The
+named ones are the likelier to need a change, so start there, but every
+warning still gets its review.
 
 For each stale warning: read the new entry, decide whether it changes the
 node, then **note each node's review** so the record shows it happened (or

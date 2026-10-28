@@ -6,6 +6,11 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- **`check` warns when a source selects no readable files.** The warning
+  names the configured source, without listing excluded paths, and never
+  blocks a write (FORMAT.md §8).
+  ([#32](https://github.com/jupsh/plied/issues/32))
+
 - **`plied messages` names a record, and a node is never a path.** It used
   to print an empty conversation (exit 0) for a node that names no record,
   and a node carrying path separators (`plied messages ../../secret`) read
@@ -28,6 +33,37 @@ are versioned separately from plied itself; see
   quadratic scan. A conflict diff between two long records no longer builds
   a quadratic LCS table. `find` compiles a `$regex` once per query, not
   once per record.
+
+## 0.7.0 — 2026-10-25
+
+- **A commitment can be superseded by another.** A decision that replaces
+  one commitment with another (new timing, new wording) used to be recorded
+  as `waived`, which says the obligation was released. The new resolved
+  state `superseded` says it lives on, in the commitment `superseded_by`
+  names. Like a waiver, its `resolved_by` is checked for authority over the
+  old commitment. `check` reports a `superseded_by` that is not a
+  commitment, or that loops back. It warns (code `superseded`) when the
+  replacement, while unresolved, does not apply to every node the old one
+  did. The view shows `superseded → P56`. (FORMAT.md §3.3, §4, §8;
+  [#25](https://github.com/jupsh/plied/issues/25))
+- **A commitment can say which kinds of action it governs.** A rule about
+  how readings are reported needed a `not-applicable` disposition for every
+  run, and the commitments that did govern runs got lost among them. The new
+  field `governs: [report]` names the action kinds a commitment governs. The
+  gate leaves it out for other kinds, and `review` still lists it as not
+  governing the action (`governs_action: false` under `--json`). `governs`
+  needs `checks.action_kinds`, so a misspelt kind is an error, and a
+  `governs` that `check` rejects governs every action: the gate fails
+  closed. (FORMAT.md §3.3, §12, §11.1;
+  [#26](https://github.com/jupsh/plied/issues/26))
+- **`check` tells a node named by a newer record from one reached through
+  its links.** Both used to give the same stale warning. Now the warning's
+  subject is `named` or `links`, the messages differ, and named nodes come
+  first, since they are the likelier to need a change rather than a note.
+  (FORMAT.md §8, *Stale*; [#27](https://github.com/jupsh/plied/issues/27))
+- A store that uses `superseded` or `governs` should set
+  `requires = ">=0.7.0"`: earlier plied reports them as an unknown state and
+  an unknown field.
 
 ## 0.6.0 — 2026-10-25
 
@@ -157,3 +193,4 @@ The first release. Record format 1, JSON envelope version 1.
   `runtime.revision_days`, and `plied gc` prunes it.
 - **Git guards**, so that record files change only through plied in the
   canonical checkout.
+

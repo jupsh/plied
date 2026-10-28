@@ -509,3 +509,4 @@ mod tests {
         assert!(d.contains(" line 0\n") && d.contains(" line 2999\n"), "common head and tail are context");
     }
 }
+

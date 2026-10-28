@@ -463,6 +463,23 @@ fn a_resolved_record_goes_stale_only_when_named() {
     assert!(stale[0].contains("T001-") && stale[1].contains("T003-"), "the open node, and the closed one named, not the closed one by its link: {stale:?}");
 }
 
+#[test]
+fn a_stale_warning_says_whether_the_node_was_named_and_named_ones_come_first() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    p.ok(&["new", "thread", "--title", "User"]);
+    p.ok(&["new", "thread", "--title", "Used"]);
+    assert!(p.set("T001", &["uses=T002"]).status.success());
+    // names T002 itself, and so cites only T001's link
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: news\ndate: 2999-01-01\n---\nT002 changes method.\n").unwrap();
+    let stale: Vec<(String, String)> =
+        diagnostics(&p).into_iter().filter(|(_, c, _, _)| c == "stale").map(|(_, _, w, s)| (w, s)).collect();
+    assert_eq!(stale.len(), 2, "{stale:?}");
+    assert!(stale[0].0.contains("T002-") && stale[0].1 == "named", "{stale:?}");
+    assert!(stale[1].0.contains("T001-") && stale[1].1 == "links", "{stale:?}");
+}
+
 // ------------------------------------------------------------------------ §7 the view
 
 #[test]
@@ -663,6 +680,59 @@ fn diagnostics(p: &Proj) -> Vec<(String, String, String, String)> {
     v["result"]["diagnostics"].as_array().unwrap().iter().map(|d| (s(d, "level"), s(d, "code"), s(d, "where"), s(d, "subject"))).collect()
 }
 
+// §8: emptiness is about accessible files, not accepted records, and never blocks writes.
+#[test]
+fn empty_sources_warn_by_name_without_failing_checks_or_writes() {
+    let p = Proj::new();
+    p.with_evidence();
+    p.append_config("[[sources]]\nname = \"notes\"\nglob = \"missing/*.md\"\nid = \"^N[0-9]{3}$\"\n");
+    let expected = vec![
+        ("warning".into(), "source-empty".into(), "plied.toml".into(), "evidence".into()),
+        ("warning".into(), "source-empty".into(), "plied.toml".into(), "notes".into()),
+    ];
+    assert_eq!(diagnostics(&p), expected);
+    assert_eq!(p.code(&["check"]), Some(0));
+    let errors_only = envelope(&p.run(&["check", "--errors-only", "--json"]));
+    assert_eq!(errors_only["result"]["diagnostics"], serde_json::json!([]));
+    p.ok(&["new", "thread", "--title", "Allowed while sources are empty"]);
+    assert_eq!(diagnostics(&p), expected);
+    p.evidence("E001", "", "A source now exists.");
+    assert_eq!(diagnostics(&p), vec![expected[1].clone()]);
+}
+
+#[test]
+fn source_empty_counts_files_before_id_validation_but_after_access_filtering() {
+    let p = Proj::new();
+    p.with_evidence();
+    let empty = |p: &Proj| diagnostics(p).iter().any(|(_, c, _, _)| c == "source-empty");
+    std::fs::create_dir(p.path().join("evidence/directory.md")).unwrap();
+    assert!(empty(&p), "directories are not files");
+    let path = p.path().join("evidence/template.md");
+    std::fs::write(&path, "# No record id\n").unwrap();
+    assert!(!empty(&p), "an idless template is still a file");
+    std::fs::write(&path, "---\nid: WRONG\n---\n").unwrap();
+    assert!(!empty(&p), "an invalid id has its own warning");
+    assert!(diagnostics(&p).iter().any(|(_, c, _, _)| c == "source-id"));
+    p.edit("plied.toml", "sealed = []", "sealed = [\"evidence/\"]");
+    // Invalid UTF-8 also proves that a sealed file's contents are not inspected.
+    std::fs::write(&path, [0xff]).unwrap();
+    let checked = p.ok(&["check", "--json"]);
+    assert!(empty(&p));
+    assert!(!checked.contains("template.md") && !checked.contains("directory.md") && !checked.contains("WRONG"), "{checked}");
+}
+
+#[cfg(unix)]
+#[test]
+fn source_empty_excludes_symlinks_outside_the_repository() {
+    let p = Proj::new();
+    p.with_evidence();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(outside.path(), "---\nid: E001\n---\n").unwrap();
+    std::os::unix::fs::symlink(outside.path(), p.path().join("evidence/E001.md")).unwrap();
+    assert!(diagnostics(&p).iter().any(|(_, c, _, _)| c == "source-empty"));
+    assert_eq!(p.code(&["check"]), Some(0));
+}
+
 fn scan_warned(p: &Proj) -> bool {
     diagnostics(p).iter().any(|(l, c, w, _)| l == "warning" && c == "commitment?" && w == "N001")
 }
@@ -756,3 +826,94 @@ fn a_scan_review_by_hand_is_checked() {
     p.edit(at, "    by: bob", "    by: bob\n    reason: typo");
     assert!(has(&p, "field", "scanned.reason"), "{:?}", diagnostics(&p));
 }
+
+// ------------------------------------------------------------- §3.3 superseded commitments
+
+/// `two_threads`, P01 attached to T001, P02 its replacement, and decisions D001 (over P01) and
+/// D002 (over P02).
+fn replaced() -> Proj {
+    let p = two_threads();
+    commitment(&p, &["nodes=[T001]"]);
+    p.evidence("E002", "", "Review before every further run, smoke tests included.");
+    p.ok(&["new", "commitment", "--title", "Review again", "wording=Review before every further run", "made=E002", "nodes=[T001]"]);
+    p.evidence("D001", "authority: user\nscope: [P01]\n", "P02 replaces P01.");
+    p.evidence("D002", "authority: user\nscope: [P02]\n", "P01 replaces P02.");
+    p
+}
+
+#[test]
+fn superseded_names_its_replacement_and_is_a_decision() {
+    let p = replaced();
+    assert_eq!(p.set("P01", &["state=superseded", "resolved_by=D001"]).status.code(), Some(4), "superseded_by is required");
+    assert_eq!(p.set("P01", &["state=superseded", "resolved_by=D001", "superseded_by=T001"]).status.code(), Some(4), "not a commitment");
+    assert_eq!(p.set("P01", &["state=superseded", "resolved_by=D001", "superseded_by=P01"]).status.code(), Some(4), "not itself");
+    assert_eq!(p.set("P01", &["state=superseded", "resolved_by=D002", "superseded_by=P02"]).status.code(), Some(4), "D002's scope lacks P01");
+    assert_eq!(p.set("P02", &["superseded_by=P01"]).status.code(), Some(4), "only a superseded commitment names a replacement");
+    let out = p.set("P01", &["state=superseded", "resolved_by=D001", "superseded_by=P02"]);
+    assert!(out.status.success(), "{}", text(&out));
+
+    // superseded is resolved: P01 leaves the gate, and its replacement holds it
+    let v = envelope(&p.run(&["review", "T001", "--json"]));
+    let ids: Vec<&str> = v["result"]["commitments"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["P02"]);
+    assert_eq!(gate(&p, "T001", "run:1"), Some(6));
+    let view = std::fs::read_to_string(p.path().join("plied/README.md")).unwrap();
+    assert!(view.contains("superseded → P02"), "{view}");
+
+    // a replacement that loops back would leave no commitment holding the obligation
+    let rev = p.rev("P02");
+    let back = p.run(&["set", "P02", "state=superseded", "resolved_by=D002", "superseded_by=P01", "--expect", &rev, "--json"]);
+    assert_eq!(back.status.code(), Some(4));
+    let d = envelope(&back)["error"]["detail"]["diagnostics"].to_string();
+    assert!(d.contains("\"cycle\"") && d.contains("P01 → P02 → P01"), "{d}");
+}
+
+#[test]
+fn a_replacement_that_drops_a_node_is_a_warning() {
+    let p = replaced();
+    assert!(p.set("P01", &["state=superseded", "resolved_by=D001", "superseded_by=P02"]).status.success());
+    let warned = |p: &Proj| diagnostics(p).iter().any(|(l, c, w, _)| l == "warning" && c == "superseded" && w.contains("P01-"));
+    assert!(!warned(&p), "P02 applies wherever P01 did");
+    assert!(p.set("P02", &["nodes=[T002]"]).status.success());
+    assert!(warned(&p), "T001 lost the obligation");
+    assert!(p.set("P02", &["nodes+=T001"]).status.success());
+    assert!(!warned(&p));
+    // once the replacement is concluded, what it covered is history
+    assert!(p.set("P02", &["nodes=[T002]"]).status.success());
+    p.evidence("E003", "", "Reviewed.");
+    assert!(p.set("P02", &["state=fulfilled", "resolved_by=E003"]).status.success());
+    assert!(!warned(&p));
+}
+
+// ---------------------------------------------------------------------- §12 governs
+
+#[test]
+fn governs_needs_the_vocabulary_and_names_only_its_kinds() {
+    let p = two_threads();
+    commitment(&p, &["nodes=[T001]"]);
+    assert_eq!(p.set("P01", &["governs=[report]"]).status.code(), Some(4), "no checks.action_kinds: a typo could not be caught");
+    p.append_config("[checks]\naction_kinds = [\"run\", \"report\"]\n");
+    assert_eq!(p.set("P01", &["governs=[reprot]"]).status.code(), Some(4), "not a kind in the vocabulary");
+    assert!(p.set("P01", &["governs=report"]).status.success());
+}
+
+#[test]
+fn the_gate_leaves_out_a_commitment_that_does_not_govern_the_action() {
+    let p = two_threads();
+    p.append_config("[checks]\naction_kinds = [\"run\", \"report\"]\n");
+    commitment(&p, &["nodes=[T001]", "governs=[report]"]);
+    assert_eq!(gate(&p, "T001", "run:1"), Some(0), "P01 governs reports, not runs");
+    assert_eq!(gate(&p, "T001", "report:1"), Some(6));
+    // review still lists it, saying it does not govern the action
+    let v = envelope(&p.run(&["review", "T001", "--action", "run:1", "--gate", "--json"]));
+    let c = &v["result"]["commitments"][0];
+    assert_eq!((c["id"].as_str(), c["governs_action"].as_bool()), (Some("P01"), Some(false)), "{v}");
+    assert_eq!(c["governs"], serde_json::json!(["report"]));
+    assert_eq!(v["result"]["gate"]["passed"], true);
+    assert!(p.ok(&["review", "T001", "--action", "run:1"]).contains("not governing run"));
+
+    // a governs check rejects governs every action: the gate fails closed
+    p.edit("plied/commitments/P01-review-first.md", "governs: [report]", "governs: [reprot]");
+    assert_eq!(gate(&p, "T001", "run:1"), Some(6));
+}
+

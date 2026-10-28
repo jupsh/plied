@@ -295,11 +295,13 @@ no `next`).
 | `summary` | text | no | prose |
 | `made` | ref | yes | the record that made the promise |
 | `trigger` | text | no | prose |
-| `state` | `open` `due` `fulfilled` `waived` `missed` `not-triggered` | yes | the last four are resolved. The state `due` is set by hand; the `due` date never sets it |
+| `state` | `open` `due` `fulfilled` `waived` `missed` `not-triggered` `superseded` | yes | the last five are resolved. The state `due` is set by hand; the `due` date never sets it. `superseded` was added in 0.7.0 |
 | `due` | date | no | advisory deadline |
 | `applies` | `linked` `subtree` `project` | no, default `linked` | §12 |
+| `governs` | list of action kinds, each one of `checks.action_kinds` | no; an error without `checks.action_kinds` | the kinds of action the commitment governs; absent, every kind. The gate leaves it out for other kinds (§12). Added in 0.7.0 |
 | `nodes` | refs to threads or questions | no; a warning when absent unless `applies: project` | attachment (§12) |
-| `resolved_by` | ref | when resolved | for `waived`, checked for authority over the commitment (§4) |
+| `resolved_by` | ref | when resolved | for `waived` and `superseded`, checked for authority over the commitment (§4) |
+| `superseded_by` | ref to a commitment, not this one | when `superseded`, and only then | the commitment that now holds the obligation. Added in 0.7.0 |
 | `links`, `cites` | refs, citations | no | |
 | `reviews` | list of mappings | no | one per disposition, appended in order (§12) |
 
@@ -340,9 +342,15 @@ are only ever appended. A scan review is not a reference in the sense of
 | `image_checked` | `true` or `false` | no | only `true` says a `table` or `figure` value was read from the page image |
 | `note` | text | no | prose |
 
+A commitment is `superseded` when a decision moved its obligation into
+another commitment, which may differ in timing or wording. `waived` releases
+an obligation; `superseded` says it still stands, in `superseded_by`. When a
+commitment's clauses end differently (one kept, one replaced), `superseded`
+is right as long as any part of the obligation lives on in the replacement.
+
 A record is *resolved* when it is a thread with status `closed`, a commitment
-in `fulfilled`, `waived`, `missed` or `not-triggered`, a question in `answered`
-or `withdrawn`, or any linked record.
+in `fulfilled`, `waived`, `missed`, `not-triggered` or `superseded`, a
+question in `answered` or `withdrawn`, or any linked record.
 
 ### 3.4 References
 
@@ -393,9 +401,10 @@ matching `id` is skipped with a warning. Linked records are never written.
 Their dates come from `date` (`YYYY-MM-DD`) and `time` (`HH:MM`, default
 `00:00`), in UTC.
 
-**Authority.** Three references must point to a decision with authority over
+**Authority.** These references must point to a decision with authority over
 what they decide: `approval.by` (over the thread), `answered_by` (over the
-question) and a waived commitment's `resolved_by` (over the commitment). The
+question) and the `resolved_by` of a waived or superseded commitment (over
+the commitment). The
 decision is a linked record. Its authority field reads `<who>`,
 `<who> by <ref>`, `<who>: <ref>` or `<who> <ref>`, where `<who>` is a word
 (letters, digits, `_`, `-`). Its scope field is a list of ids, or text with ids
@@ -531,13 +540,13 @@ decision, is a new error.
 | `parse` | the file | — | the frontmatter breaks §3.1 |
 | `id` | the file | — | an id is missing or malformed, or the file name does not start with it |
 | `duplicate` | the file | — | another file uses the same id |
-| `field` | the record | the field: `next`, `actor`, `due`, `revisit_on`, `applies`, `approval.state`, `cites.kind`, `reviews[<i>].action`, `scanned[<i>].record`, `scanned[<i>].rev`, an unknown field's name, … | an unknown field or subfield; a value of the wrong type or outside its allowed values (§3.3) |
-| `required` | the record | the field: `title`, `outcome`, `outcome.quote`, `outcome.source`, `wording.quote`, `wording.source`, `approval.by`, `resolved_by`, `raised`, `answered_by` | a required field is missing |
-| `ref` | the record | `<field>:<id>` | a broken reference (saying when it may be sealed); a reference to the wrong kind (`parent` not a thread, `nodes` not a thread or question, `backlog` or `scanned` a plied record); a node depending on itself |
-| `state` | the record | `status` or `state` (invalid value), `next` (on a node that is not open), `waiting_on` (`waiting` without it), `waiting_on:<id>` (one per unresolved dependency of an `open` node), `group`, `outcome`, `carries` | a state that contradicts the other fields |
+| `field` | the record | the field: `next`, `actor`, `due`, `revisit_on`, `applies`, `approval.state`, `cites.kind`, `reviews[<i>].action`, `scanned[<i>].record`, `scanned[<i>].rev`, `governs` (without `checks.action_kinds`, or an item that is not text), `governs:<kind>` (one per kind not in `checks.action_kinds`), an unknown field's name, … | an unknown field or subfield; a value of the wrong type or outside its allowed values (§3.3) |
+| `required` | the record | the field: `title`, `outcome`, `outcome.quote`, `outcome.source`, `wording.quote`, `wording.source`, `approval.by`, `resolved_by`, `superseded_by`, `raised`, `answered_by` | a required field is missing |
+| `ref` | the record | `<field>:<id>` | a broken reference (saying when it may be sealed); a reference to the wrong kind (`parent` not a thread, `nodes` not a thread or question, `superseded_by` not a commitment, `backlog` or `scanned` a plied record); a node depending on itself; a commitment superseded by itself |
+| `state` | the record | `status` or `state` (invalid value), `next` (on a node that is not open), `waiting_on` (`waiting` without it), `waiting_on:<id>` (one per unresolved dependency of an `open` node), `group`, `outcome`, `carries`, `superseded_by` (set on a commitment that is not `superseded`) | a state that contradicts the other fields |
 | `quote` | the record | `outcome` or `wording` | a quotation does not match (§3.6) |
-| `authority` | the record | `<approval, answer or waiver>:<decision id>` | §4 |
-| `cycle` | the cycle | `waiting_on` or `parent` | a cycle |
+| `authority` | the record | `<approval, answer, waiver or supersession>:<decision id>` | §4 |
+| `cycle` | the cycle | `waiting_on`, `parent` or `superseded_by` | a cycle |
 | `literature` | the record | `cites` | `cites` without `[literature]` |
 | `lit-<aspect>` | the record | `<paper> p<page>` | a citation check fails (§10) |
 | `messages` | the log or line | — | a malformed or unsupported event, a repeated id, a message filed under the wrong node, a receipt for an unknown message, a torn last line |
@@ -547,7 +556,9 @@ A review whose disposition is not allowed has the `field` code with subject
 `reviews[<i>].disposition`. Indexes are stable, because reviews are only
 ever appended.
 
-**Warnings:** a linked id not matching its pattern; an approval whose authority
+**Warnings:** a source selecting no files allowed by the access policy (code
+`source-empty`, location `plied.toml`, subject the source's `name`); a linked
+id not matching its pattern; an approval whose authority
 cannot be verified; a waiting node whose `waiting_on` is all resolved; a
 commitment attached to nothing; a body mentioning ids that do not exist; a
 *stale* node (below); a scanned
@@ -557,7 +568,17 @@ no thread's `scanned` covers at its current revision; an unlinked record of a
 `require_linked` source; a stale view; citation warnings (§10); a date that
 asks for attention (§3.3, code `date`); a review whose action has a kind not
 in `checks.action_kinds` (code `action`, a warning so that adopting a
-vocabulary never blocks records made before it).
+vocabulary never blocks records made before it); a superseded commitment
+whose replacement, followed through `superseded_by` to the first commitment
+that is not superseded, is unresolved and does not apply (§12) to every node
+the superseded one applies to (code `superseded`, added in 0.7.0).
+
+`source-empty` counts files after access filtering (§9), before parsing or
+checking ids. Directories do not count; an idless template or a file with an
+invalid id does. A source whose matches are all sealed or resolve outside the
+repository gets the same warning as one with no matches, without listing
+those paths. This warning never fails `check` or blocks a write and is omitted
+by `--errors-only`. It does not check literature manifests.
 
 **Stale.** A plied record is stale when a dated linked record (§4), dated
 strictly after the record's last update (§3.5), mentions the record's id or,
@@ -573,6 +594,13 @@ references are history: a record about something a closed thread or a
 fulfilled commitment once linked cannot change what it concluded, while one
 that names the resolved record itself may be reopening it. (Before 0.5.0, a
 resolved record went stale through its references too.)
+
+A node has at most two stale warnings, told apart by subject: `named` lists
+the newer records that mention the node's own id, and `links` those that
+mention only ids in its reference fields. All `named` warnings are reported
+before any `links` warning. A record that names the node is more likely to
+change it, while one that cites only its links usually needs just a note.
+(Before 0.7.0, a node had one stale warning, with no subject.)
 
 ## 9. Access
 
@@ -776,7 +804,7 @@ command:
 |---|---|
 | `init` | `{path}` |
 | `skill` | `{version, skill}`: the agent skill as Markdown text, rendered from this binary's version and command inventory. Needs no repository. Without `--json` the skill itself is the stdout text. |
-| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`; a plied thread or question also has `commitments: [{id, rev, state, title, chains}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0) |
+| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`; a plied thread or question also has `commitments: [{id, rev, state, title, chains, governs}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0; `governs` in 0.7.0, null when absent) |
 | `new`, `set`, `note`, `replace`, `dispose`, `scanned` | `{id, rev}`: the record written |
 | `list` | `[{id, kind, title, state, rev, path}]` |
 | `find` | records without `body` and `text` |
@@ -795,7 +823,7 @@ command:
 | `inbox` | `{messages, marked_read}`; each message carries `delivered`, `read`, `acked` (times or null) |
 | `ack` | `{acknowledged}` |
 | `messages` | the node's events, in log order. The node must name a record, as for `send`; an unknown node is an error (exit 1), never an empty conversation. A node is a record id, never a path: a log is only ever the one file `<root>/messages/<node>.jsonl` for that id |
-| `review` | `{commitments: [{id, rev, state, wording, chains, reviews}], gate}`; `gate` is null without `--gate`, else `{action, passed, reasons}` |
+| `review` | `{commitments: [{id, rev, state, wording, chains, reviews, governs, governs_action}], gate}`; `gate` is null without `--gate`, else `{action, passed, reasons}`. `governs` is the commitment's list, or null; `governs_action` is false when the gate leaves the commitment out for `--action` (§12), and true without `--action` (both added in 0.7.0) |
 | `index` | `{records, pages, policy}` |
 | `search`, `lit search` | `[{key, kind, path, score, snippet, stale, ocr}]`; `-n` caps how many are returned, and `-n 0` returns none |
 | `lit list` | `[{id, file, pages}]` |
@@ -845,10 +873,18 @@ Nothing else carries an obligation. `parent` alone does not (rule 3 needs
 `subtree`). Ancestors of dependencies are not followed. `carries`, `backlog`
 and `cites` never make a commitment apply.
 
+**Governed actions.** A commitment with `governs` governs only actions of
+the kinds it lists. It still applies, and `review` still lists it, marked as
+not governing the action, but the gate leaves it out for any other kind.
+A `governs` that `check` rejects (no `checks.action_kinds`, or a kind not in
+it) governs every action, so a misspelling holds the gate instead of opening
+it. Narrowing `governs` opens gates just as removing a node from `nodes`
+does, and like that it needs no authority: the history line records it.
+
 **The gate.** `--gate` needs `--action` (otherwise a usage error, exit 2). It
-exits 6 when any applicable commitment has no review for `A`, or when its
-latest review for `A` has disposition `blocks`. Otherwise it exits 0,
-including when no commitment applies.
+exits 6 when any applicable commitment that governs `A` has no review for
+`A`, or when its latest review for `A` has disposition `blocks`. Otherwise it
+exits 0, including when no commitment applies.
 
 - *Latest* is last in list order. `at` is not consulted.
 - Action names are compared as exact, case-sensitive text. A review for any
@@ -864,3 +900,4 @@ including when no commitment applies.
   is unchanged since.
 - The gate examines only the nodes it is given. It cannot tell whether the
   caller named the right nodes, or whether the action it gates ever runs.
+

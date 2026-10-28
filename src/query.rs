@@ -211,3 +211,4 @@ pub fn matches(doc: &Value, q: &Value) -> Res<bool> {
     }
     Ok(true)
 }
+

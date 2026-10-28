@@ -55,6 +55,7 @@ states!(CommitmentState {
     Waived = "waived",
     Missed = "missed",
     NotTriggered = "not-triggered",
+    Superseded = "superseded",
 });
 states!(QuestionState { Open = "open", Answered = "answered", Withdrawn = "withdrawn" });
 states!(Disposition { Satisfied = "satisfied", Acting = "acting", NotTriggered = "not-triggered", NotApplicable = "not-applicable", Blocks = "blocks" });
@@ -75,8 +76,8 @@ impl OwnKind {
                 "closes_when", "revisit", "revisit_on", "backlog", "links", "cites", "scanned",
             ],
             OwnKind::Commitment => &[
-                "id", "title", "wording", "summary", "made", "trigger", "state", "due", "applies", "nodes", "resolved_by", "links",
-                "cites", "reviews",
+                "id", "title", "wording", "summary", "made", "trigger", "state", "due", "applies", "governs", "nodes", "resolved_by",
+                "superseded_by", "links", "cites", "reviews",
             ],
             OwnKind::Question => &["id", "title", "options", "raised", "state", "due", "nodes", "answered_by", "answer", "links", "cites"],
         }
@@ -86,7 +87,7 @@ impl OwnKind {
     pub fn ref_fields(self) -> &'static [&'static str] {
         match self {
             OwnKind::Thread => &["parent", "waiting_on", "uses", "carries", "backlog", "links", "approval.by", "outcome.ref"],
-            OwnKind::Commitment => &["made", "nodes", "resolved_by", "links"],
+            OwnKind::Commitment => &["made", "nodes", "resolved_by", "superseded_by", "links"],
             OwnKind::Question => &["raised", "nodes", "answered_by", "links"],
         }
     }
@@ -98,13 +99,13 @@ impl OwnKind {
     pub fn is_resolved(self, state: &str) -> bool {
         match self {
             OwnKind::Thread => state == "closed",
-            OwnKind::Commitment => matches!(state, "fulfilled" | "waived" | "missed" | "not-triggered"),
+            OwnKind::Commitment => matches!(state, "fulfilled" | "waived" | "missed" | "not-triggered" | "superseded"),
             OwnKind::Question => matches!(state, "answered" | "withdrawn"),
         }
     }
 }
 
-pub const LIST_FIELDS: [&str; 9] = ["waiting_on", "uses", "carries", "links", "nodes", "options", "cites", "reviews", "scanned"];
+pub const LIST_FIELDS: [&str; 10] = ["waiting_on", "uses", "carries", "links", "nodes", "options", "cites", "reviews", "scanned", "governs"];
 
 static HISTORY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^- (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC\b(.*)$").unwrap());
 static REF_END: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\s,;]").unwrap());
@@ -433,6 +434,8 @@ pub struct Store {
     file_ids: Vec<(OwnKind, String)>,
     /// (code, where, message)
     pub load_problems: Vec<(&'static str, String, String)>,
+    /// Source names whose globs selected no files allowed by the access policy.
+    pub empty_sources: Vec<String>,
     /// kinds and sources with files the access policy kept unread
     sealed_kinds: HashSet<String>,
     token: OnceCell<fancy_regex::Regex>,
@@ -448,6 +451,7 @@ impl Store {
             index: HashMap::new(),
             file_ids: vec![],
             load_problems: vec![],
+            empty_sources: vec![],
             sealed_kinds: HashSet::new(),
             token: OnceCell::new(),
         };
@@ -474,6 +478,7 @@ impl Store {
         for src in &cfg.sources {
             let mut names = globpat::glob(&cfg.base, &src.glob);
             names.sort();
+            let mut has_file = false;
             for name in names {
                 let joined = cfg.base.join(&name);
                 if !policy.readable(&joined) {
@@ -484,6 +489,7 @@ impl Store {
                 if !p.is_file() {
                     continue;
                 }
+                has_file = true;
                 let rec = read_record(&p, Kind::Linked(src.clone()), &ov)?;
                 if rec.id.is_empty() {
                     continue; // generated indexes, templates: not records
@@ -493,6 +499,9 @@ impl Store {
                     continue;
                 }
                 st.add(rec);
+            }
+            if !has_file {
+                st.empty_sources.push(src.name.clone());
             }
         }
         Ok(st)

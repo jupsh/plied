@@ -271,3 +271,4 @@ pub fn snippet(text: &str, q: &[String], width: usize) -> String {
     let post = if start + width < flat.len() { "…" } else { "" };
     format!("{pre}{s}{post}")
 }
+

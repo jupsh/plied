@@ -249,7 +249,14 @@ pub fn render_view(store: &Store) -> String {
         l.extend(["| id | commitment | made | state | applies to |".into(), "|---|---|---|---|---|".into()]);
         for c in commitments {
             let st = c.state().map(Node::to_string).unwrap_or_default();
-            let st = if st == "due" || st == "missed" { format!("**{st}**") } else { st };
+            let st = match st.as_str() {
+                "due" | "missed" => format!("**{st}**"),
+                "superseded" => match doc::set(&c.meta, "superseded_by") {
+                    Some(by) => format!("superseded → {}", node_ref(by)),
+                    None => st,
+                },
+                _ => st,
+            };
             let applies = c.meta.get("applies").and_then(Node::str).and_then(Applies::parse);
             let nodes = match applies {
                 Some(Applies::Project) => "project-wide".to_string(),
