@@ -35,6 +35,10 @@ is an unsolved mathematical problem.
 Each new thread carries a short comparison in its body: object mapping,
 assumptions, evidence, bounded conclusion and next step. The earlier result has
 an `outcome` and a prose `revisit` condition. No fields or states are added.
+Threads also have an optional author-written `## Summary` followed by the
+full comparison/evidence section. The replay checks extraction through `show`,
+`context` and the frontier while preserving the detailed text. Summaries are
+orientation aids, not evidence or automatic freshness claims.
 The evidence source is explicitly included in the search allowlist so the
 optional [related-work companion](../related/README.md) can retrieve it.
 

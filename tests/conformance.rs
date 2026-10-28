@@ -15,6 +15,86 @@ fn two_threads() -> Proj {
     p
 }
 
+// ------------------------------------------------------------------- §3.7 optional synopsis
+
+#[test]
+fn thread_body_summary_is_optional_read_only_and_visible_in_orientation() {
+    let p = Proj::new();
+    let summary = "Integer result only.\nReal-domain question remains open; consult the full evidence.";
+    let body = format!("## Summary\n{summary}\n\n## Evidence\nFull conditions and original source remain here.");
+    std::fs::write(p.path().join("body.md"), &body).unwrap();
+    p.ok(&["new", "thread", "--title", "Scoped result", "actor=alice", "next=1", "--body", "body.md"]);
+    p.ok(&["new", "thread", "--title", "No synopsis", "actor=alice"]);
+
+    let show = envelope(&p.run(&["show", "T001", "--json"]));
+    assert_eq!(show["result"]["body_summary"], summary);
+    assert!(show["result"]["text"].as_str().unwrap().contains("Full conditions"));
+    assert!(p.ok(&["show", "T001"]).contains("Full conditions"));
+    assert!(envelope(&p.run(&["show", "T002", "--json"]))["result"]["body_summary"].is_null());
+    let context = envelope(&p.run(&["context", "T001", "--json"]));
+    assert_eq!(context["result"]["node"]["body_summary"], summary);
+    assert_eq!(context["result"]["node"]["rev"], show["result"]["rev"]);
+    let frontier = envelope(&p.run(&["frontier", "--json"]));
+    assert_eq!(frontier["result"]["queues"]["alice"][0]["body_summary"], summary);
+    assert!(frontier["result"]["unscheduled"][0]["body_summary"].is_null());
+    let tree = envelope(&p.run(&["tree", "--json"]));
+    assert_eq!(tree["result"][0]["body_summary"], summary);
+    assert!(p.ok(&["frontier"]).contains("Summary (author-written preview):"));
+    assert!(p.ok(&["view", "--print"]).contains("Summary (author-written preview):"));
+    assert_eq!(p.code(&["view", "--check"]), Some(0));
+    assert_eq!(p.set("T001", &["body_summary=not a stored field"]).status.code(), Some(4));
+
+    // The synopsis obeys the ordinary seal policy, including orientation results.
+    p.edit("plied.toml", "sealed = []", "sealed = [\"T001\"]");
+    assert!(!p.ok(&["frontier", "--json"]).contains("Real-domain question"));
+    assert!(!p.ok(&["view", "--print"]).contains("Real-domain question"));
+    assert_eq!(p.code(&["context", "T001", "--json"]), Some(1));
+}
+
+#[test]
+fn summaries_neither_satisfy_commitments_nor_certify_their_own_freshness() {
+    let p = two_threads();
+    commitment(&p, &["nodes=[T001]"]);
+    let before = envelope(&p.run(&["show", "T001", "--json"]));
+    let text = before["result"]["text"].as_str().unwrap().replace("## History", "## Summary\nApproved; the control passed.\n\n## Details\nThe actual control is unresolved.\n\n## History");
+    std::fs::write(p.path().join("replacement.md"), text).unwrap();
+    p.ok(&["replace", "T001", "replacement.md", "--expect", before["result"]["rev"].as_str().unwrap()]);
+    assert_eq!(gate(&p, "T001", "run:summary"), Some(6));
+    let show = envelope(&p.run(&["show", "T001", "--json"]));
+    assert_eq!(show["result"]["status"], "open");
+    assert!(show["result"]["approval"].is_null());
+    assert!(p.ok(&["show", "P01"]).contains("Review before every run."));
+
+    // The author can edit details without revising the synopsis. No new freshness
+    // guarantee is implied by extraction, the source rev, or a passing check.
+    let changed = show["result"]["text"].as_str().unwrap().replace("The actual control is unresolved.", "The actual control failed.");
+    std::fs::write(p.path().join("replacement.md"), changed).unwrap();
+    p.ok(&["replace", "T001", "replacement.md", "--expect", show["result"]["rev"].as_str().unwrap()]);
+    assert_eq!(envelope(&p.run(&["show", "T001", "--json"]))["result"]["body_summary"], "Approved; the control passed.");
+    assert_eq!(p.code(&["check"]), Some(0));
+    assert_eq!(gate(&p, "T001", "run:summary"), Some(6));
+}
+
+#[test]
+fn commitment_summary_and_bounded_thread_previews_keep_their_distinct_meanings() {
+    let p = two_threads();
+    commitment(&p, &["nodes=[T001]", "summary=Existing commitment synopsis"]);
+    let c = envelope(&p.run(&["show", "P01", "--json"]));
+    assert_eq!(c["result"]["summary"], "Existing commitment synopsis");
+    assert!(c["result"].get("body_summary").is_none());
+    let read = envelope(&p.run(&["show", "T001", "--json"]));
+    let long = "α".repeat(300);
+    let text = read["result"]["text"].as_str().unwrap().replace("## History", &format!("## Summary\n{long}\n\n## History"));
+    std::fs::write(p.path().join("replacement.md"), text).unwrap();
+    p.ok(&["replace", "T001", "replacement.md", "--expect", read["result"]["rev"].as_str().unwrap()]);
+    let output = p.ok(&["frontier"]);
+    let prefix = "Summary (author-written preview): ";
+    let preview = output.lines().find_map(|l| l.trim().strip_prefix(prefix)).unwrap();
+    assert_eq!(preview.chars().count(), 240);
+    assert!(preview.ends_with('…'));
+    assert_eq!(envelope(&p.run(&["show", "T001", "--json"]))["result"]["body_summary"], long);
+}
+
 fn commitment(p: &Proj, extra: &[&str]) {
     p.evidence("E001", "", "Review before every run.");
     let mut args = vec!["new", "commitment", "--title", "Review first", "wording=Review before every run.", "made=E001"];

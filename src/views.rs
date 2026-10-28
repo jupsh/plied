@@ -22,6 +22,11 @@ fn field_cell(r: &Record, key: &str) -> String {
     cell(&doc::text(&r.meta, key).unwrap_or_default())
 }
 
+/// Bounded orientation aid. The full author-written section remains in the record.
+pub fn summary_preview(r: &Record) -> Option<String> {
+    r.body_summary().map(|s| short(&s, 240))
+}
+
 fn refs(r: &Record, key: &str) -> String {
     r.ref_list(key).join(", ")
 }
@@ -84,6 +89,9 @@ pub fn node_summary(store: &Store, r: &Record, linked_state: bool) -> String {
         } else {
             bits.push(format!("[{id}]"));
         }
+    }
+    if let Some(summary) = summary_preview(r) {
+        bits.push(format!("summary: {summary}"));
     }
     bits.join(", ")
 }
@@ -151,7 +159,7 @@ pub fn tree_json(store: &Store, root: Option<&str>) -> serde_json::Value {
             return json!({"id": r.id, "cycle": true});
         }
         let children: Vec<Value> = kids.get(&Some(r.id.clone())).into_iter().flatten().map(|c| visit(c, kids, seen)).collect();
-        json!({"id": r.id, "title": r.title(), "status": r.state_str(), "rev": r.rev, "children": children})
+        json!({"id": r.id, "title": r.title(), "status": r.state_str(), "rev": r.rev, "body_summary": r.body_summary(), "children": children})
     }
     let starts: Vec<&Record> = match root {
         Some(id) => store.get(id).into_iter().collect(),
@@ -215,6 +223,9 @@ pub fn render_view(store: &Store) -> String {
         l.extend([format!("**{actor}**"), "".into()]);
         for r in rs {
             l.push(format!("{}. {} {}", next(r).map(Node::to_string).unwrap_or_default(), link(OwnKind::Thread, r), cell(&r.title())));
+            if let Some(summary) = summary_preview(r) {
+                l.push(format!("   Summary (author-written preview): {}", cell(&summary)));
+            }
         }
         l.push("".into());
     }
@@ -275,6 +286,9 @@ pub fn render_view(store: &Store) -> String {
         for r in held {
             let revisit = doc::text(&r.meta, "revisit").map(|v| format!(" — revisit: {}", cell(&v))).unwrap_or_default();
             l.push(format!("- {} ({}) {}{revisit}", r.id, r.state().map(Node::to_string).unwrap_or_default(), cell(&r.title())));
+            if let Some(summary) = summary_preview(r) {
+                l.push(format!("  Summary (author-written preview): {}", cell(&summary)));
+            }
         }
     }
 
