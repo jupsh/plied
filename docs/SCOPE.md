@@ -6,6 +6,10 @@ plied or on top of it. It takes the gaps that worked scenarios exposed
 (research, platform engineering, regulated change control, investigative
 journalism, incident response, and others) and assigns each one a place.
 
+The [worked research example](../examples/research/README.md) is a tracked
+store and executable replay of interruption, recovery, comparison and
+replication. It demonstrates the current gate's evidence and identity limits.
+
 Every item has a status:
 
 - **Implemented**: in the code and in [FORMAT.md](FORMAT.md).
@@ -247,3 +251,4 @@ regulated records) where confidentiality is tested by adversaries.
 
 Export closure, reference helpers and validators each get their own design
 after step 5.
+

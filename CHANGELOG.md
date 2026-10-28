@@ -11,6 +11,24 @@ are versioned separately from plied itself; see
   blocks a write (FORMAT.md §8).
   ([#32](https://github.com/jupsh/plied/issues/32))
 
+- **Document what record dates establish.** FORMAT.md §3.5 and the README
+  now distinguish writer-supplied times from independently anchored evidence
+  that a record preceded an event. No file format or checking behaviour changes.
+  ([#36](https://github.com/jupsh/plied/issues/36))
+
+- **The skill shows how to review controls before citing a null.** Quote the
+  plan's positive-control or manipulation-check requirement, gate a fresh
+  `cite-null` action, and record a failed control as `blocks`. The example
+  spells out that the gate does not establish that the control passed.
+  ([#39](https://github.com/jupsh/plied/issues/39))
+
+- **A tracked research example can be replayed.** Synthetic evidence and
+  checked writes walk an interrupted experiment through recovery, comparison,
+  interpretation and replication, retaining an unresolved question at closure.
+  The example demonstrates that a review does not pin evidence revisions or
+  establish reviewer identity or independence. No format or gate rules change.
+  ([#38](https://github.com/jupsh/plied/issues/38))
+
 - **`plied messages` names a record, and a node is never a path.** It used
   to print an empty conversation (exit 0) for a node that names no record,
   and a node carrying path separators (`plied messages ../../secret`) read
@@ -193,4 +211,3 @@ The first release. Record format 1, JSON envelope version 1.
   `runtime.revision_days`, and `plied gc` prunes it.
 - **Git guards**, so that record files change only through plied in the
   canonical checkout.
-

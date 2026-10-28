@@ -142,6 +142,43 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   (`run:fit-<date>`) each time, so an old review never stands in for a new
   run. A `because` says what you checked, not that you checked.
 
+### Controls before citing a null result
+
+When an experimental plan requires a positive control or manipulation check,
+record that requirement as a commitment before the experiment. For example,
+if D001 says "Before citing a null, recover the known positive and verify the
+delivered dose", quote it exactly:
+
+```sh
+plied new commitment --title "Controls before citing a null" made=D001 \
+  'wording=Before citing a null, recover the known positive and verify the delivered dose' \
+  'nodes=[T001]'
+plied review T001 --action cite-null:run-01 --gate
+```
+
+If `checks.action_kinds` is configured, it must include `cite-null`. Leave
+`governs` unset unless the plan confines the requirement to particular action
+kinds. Use a fresh action name for each proposed citation. Read the control
+results against the plan's criteria, then `show` the commitment and record a
+disposition with that revision. For example, if the known positive was missed:
+
+```sh
+plied show P01
+plied dispose P01 --action cite-null:run-01 --disposition blocks \
+  --because "The detector missed the known positive; this null cannot support the claim" \
+  --ref E002 --expect <rev>
+plied review T001 --action cite-null:run-01 --gate
+```
+
+Use the id returned by `new` in place of P01, and the actual results record in
+place of E002. Record `satisfied` only after judging the evidence against the
+criteria; a missing or failed control calls for `blocks` while the requirement
+remains unmet. The gate checks that the commitment was reviewed for this
+action and no latest disposition is `blocks`, not that the control passed.
+It does not evaluate the measurements or establish that the reviewed evidence
+is unchanged. A null from a tool that missed its known positive is not made
+informative by a passing gate.
+
 ## Scan triage: commitment, scan, or neither
 
 `plied check` warns `commitment?` when a linked record from a
@@ -260,3 +297,4 @@ on since `--expect`) · 4 the change would add validation errors · 5 blocked
 "#
     )
 }
+

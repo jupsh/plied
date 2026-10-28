@@ -387,6 +387,12 @@ it.
 
 ## What it does not do
 
+- **Prove that a record preceded an event.** Record dates are claims by the
+  writer: History and review times use the writing machine's clock, and git
+  commit dates can be set by the committer. Precedence needs an anchor the
+  writer cannot create or rewrite alone, such as an independently held
+  checkpoint. The proposed receipts and attestations would need that anchor
+  too; see [docs/SCOPE.md](https://github.com/jupsh/plied/blob/main/docs/SCOPE.md).
 - **Guarantee anything for writes that bypass it.** Edit files by hand, or
   commit with `--no-verify`, and only `plied check` and `plied guard range` can
   still notice.
@@ -404,6 +410,9 @@ it.
 
 ## Further reading
 
+- [Worked research example](examples/research/README.md) — replay an interrupted
+  experiment through recovery, comparison, interpretation and replication,
+  with a tracked store and explicit limits of a passing gate.
 - [Format specification](https://github.com/jupsh/plied/blob/main/docs/FORMAT.md) — the contract for files and
   command-line behaviour.
 - [Scope](https://github.com/jupsh/plied/blob/main/docs/SCOPE.md) — what plied does itself, what it only makes
@@ -413,3 +422,5 @@ it.
 ## Licence
 
 MIT.
+
+
