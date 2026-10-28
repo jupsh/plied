@@ -564,7 +564,9 @@ A review whose disposition is not allowed has the `field` code with subject
 `reviews[<i>].disposition`. Indexes are stable, because reviews are only
 ever appended.
 
-**Warnings:** a linked id not matching its pattern; an approval whose authority
+**Warnings:** a source selecting no files allowed by the access policy (code
+`source-empty`, location `plied.toml`, subject the source's `name`); a linked
+id not matching its pattern; an approval whose authority
 cannot be verified; a waiting node whose `waiting_on` is all resolved; a
 commitment attached to nothing; a body mentioning ids that do not exist; a
 *stale* node (below); a scanned
@@ -578,6 +580,13 @@ vocabulary never blocks records made before it); a superseded commitment
 whose replacement, followed through `superseded_by` to the first commitment
 that is not superseded, is unresolved and does not apply (§12) to every node
 the superseded one applies to (code `superseded`, added in 0.7.0).
+
+`source-empty` counts files after access filtering (§9), before parsing or
+checking ids. Directories do not count; an idless template or a file with an
+invalid id does. A source whose matches are all sealed or resolve outside the
+repository gets the same warning as one with no matches, without listing
+those paths. This warning never fails `check` or blocks a write and is omitted
+by `--errors-only`. It does not check literature manifests.
 
 **Stale.** A plied record is stale when a dated linked record (§4), dated
 strictly after the record's last update (§3.5), mentions the record's id or,
@@ -899,3 +908,4 @@ exits 0, including when no commitment applies.
   is unchanged since.
 - The gate examines only the nodes it is given. It cannot tell whether the
   caller named the right nodes, or whether the action it gates ever runs.
+
