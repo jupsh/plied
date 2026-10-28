@@ -73,8 +73,18 @@ pub fn attachments(store: &Store) -> HashMap<String, HashSet<String>> {
     attached
 }
 
+type NodeWalk = (String, Vec<(String, Vec<String>)>, Vec<String>);
+
+fn node_walks(store: &Store, nodes: &[String]) -> Vec<NodeWalk> {
+    nodes.iter().map(|n| (n.clone(), deps(store, n), ancestors(store, n))).collect()
+}
+
 /// The chains through which commitment `c` applies to any of `nodes`, whatever its state (§12).
 pub fn chains(store: &Store, c: &Record, attached: &HashMap<String, HashSet<String>>, nodes: &[String]) -> Vec<String> {
+    chains_for_walks(c, attached, &node_walks(store, nodes))
+}
+
+fn chains_for_walks(c: &Record, attached: &HashMap<String, HashSet<String>>, walks: &[NodeWalk]) -> Vec<String> {
     let empty = HashSet::new();
     let att = attached.get(&c.id).unwrap_or(&empty);
     let mut chains: Vec<String> = vec![];
@@ -85,16 +95,16 @@ pub fn chains(store: &Store, c: &Record, attached: &HashMap<String, HashSet<Stri
     if scope == Some(Applies::Project) {
         chains.push("project-wide".into());
     }
-    for n in nodes {
-        for (m, path) in deps(store, n) {
-            if m == c.id && path.len() > 1 {
+    for (n, deps, ancestors) in walks {
+        for (m, path) in deps {
+            if *m == c.id && path.len() > 1 {
                 chains.push(path.join(" "));
-            } else if att.contains(&m) {
+            } else if att.contains(m) {
                 chains.push(if path.len() > 1 { format!("{} ← {}", path.join(" "), c.id) } else { format!("{n} ← {} (attached)", c.id) });
             }
         }
         if scope == Some(Applies::Subtree) {
-            for a in ancestors(store, n).into_iter().filter(|a| att.contains(a)) {
+            for a in ancestors.iter().filter(|a| att.contains(a.as_str())) {
                 chains.push(format!("{n} is under {a} ← {} (applies: subtree)", c.id));
             }
         }
@@ -120,6 +130,7 @@ pub fn governs(store: &Store, c: &Record, action: &str) -> bool {
 
 pub fn applicable<'s>(store: &'s Store, nodes: &[String], action: Option<&str>) -> Vec<Applicable<'s>> {
     let attached = attachments(store);
+    let walks = node_walks(store, nodes);
     let mut out = vec![];
     for c in store.own(Some(OwnKind::Commitment)) {
         // only a resolved commitment stops applying: a missing or malformed state (an error in check)
@@ -127,7 +138,7 @@ pub fn applicable<'s>(store: &'s Store, nodes: &[String], action: Option<&str>) 
         if c.state_str().and_then(CommitmentState::parse).is_some_and(|st| OwnKind::Commitment.is_resolved(st.as_str())) {
             continue;
         }
-        let chains = chains(store, c, &attached, nodes);
+        let chains = chains_for_walks(c, &attached, &walks);
         if !chains.is_empty() {
             let reviews = c
                 .meta
@@ -160,3 +171,4 @@ pub fn gate(items: &[Applicable], action: &str) -> Vec<String> {
     }
     out
 }
+

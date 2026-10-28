@@ -340,6 +340,47 @@ fn with_stdout_closed(p: &Proj, args: &[&str]) -> std::process::Output {
 }
 
 #[test]
+fn messages_needs_a_real_node_and_stays_in_the_messages_dir() {
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "First"]);
+    // an unknown node is an error, like `send` and `subscribe` already report
+    let out = p.run(&["messages", "T999"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out));
+    assert!(text(&out).contains("no record T999"), "{}", text(&out));
+    // a node naming a path is not a way to read some other .jsonl file in the repo
+    std::fs::create_dir_all(p.path().join("plied/messages")).unwrap();
+    std::fs::write(
+        p.path().join("secret.jsonl"),
+        "{\"v\":1,\"id\":\"X1\",\"type\":\"message\",\"node\":\"x\",\"at\":\"2026-01-01T00:00:00Z\",\"from\":\"eve\",\"session\":null,\"to\":[\"alice\"],\"present\":[],\"reply_to\":null,\"text\":\"SECRET-INSIDE\"}\n",
+    )
+    .unwrap();
+    let out = p.run(&["messages", "../../secret"]);
+    assert_ne!(out.status.code(), Some(0), "{}", text(&out));
+    assert!(!text(&out).contains("SECRET-INSIDE"), "{}", text(&out));
+}
+
+#[test]
+fn search_with_zero_limit_returns_no_hits() {
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "Findable thread"]);
+    p.ok(&["index"]);
+    let out = p.ok(&["search", "Findable", "-n", "0"]);
+    assert!(out.contains("no matches"), "{out}");
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["search", "Findable", "-n", "0", "--json"])).unwrap();
+    assert_eq!(v["result"], serde_json::json!([]));
+    assert!(p.ok(&["search", "Findable", "-n", "1"]).contains("T001"));
+}
+
+#[test]
+fn a_negative_claim_ttl_is_a_usage_error() {
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "First"]);
+    let out = p.run(&["claim", "T001", "--ttl=-5"]);
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+    assert!(p.ok(&["who"]).contains("nobody"), "no expired-by-construction claim is left behind");
+}
+
+#[test]
 fn a_closed_stdout_ends_the_output_not_the_command() {
     let p = Proj::new();
     // more output than a pipe buffers, so plied is still writing when the reader has gone
@@ -358,4 +399,3 @@ fn a_closed_stdout_ends_the_output_not_the_command() {
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
     assert!(p.ok(&["list"]).contains("T002"));
 }
-

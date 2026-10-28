@@ -29,6 +29,29 @@ are versioned separately from plied itself; see
   establish reviewer identity or independence. No format or gate rules change.
   ([#38](https://github.com/jupsh/plied/issues/38))
 
+- **`plied messages` names a record, and a node is never a path.** It used
+  to print an empty conversation (exit 0) for a node that names no record,
+  and a node carrying path separators (`plied messages ../../secret`) read
+  whatever `.jsonl` file that named inside the checkout. It now fails like
+  `send` and `subscribe` (`no record …`, exit 1), and a log is only ever
+  `<root>/messages/<node>.jsonl` for a record id, on read and on append
+  (FORMAT.md §11.1).
+- **`frontier --actor` scopes `--json` as it already scoped the text.**
+  `open_questions` and `dates` are no one actor's, so with `--actor` they
+  are now empty in `--json` too, instead of listing everyone's
+  (FORMAT.md §11.1).
+- **`search -n 0` returns no hits.** The limit was checked after the first
+  hit was taken, so `-n 0` returned one result (FORMAT.md §11.1).
+- **`claim --ttl` refuses a negative lease.** `--ttl=-5` used to succeed
+  with a claim that was already expired; it is now a usage error (exit 2).
+  `--ttl 0` still means `messages.lease_minutes` (FORMAT.md §11.1).
+- **Faster and bounded hot paths.** `review` (and `claim`/`show`, which use
+  it) walks each named node's dependencies and ancestors once, not once per
+  commitment. Search snippets no longer build a discarded regex pass and a
+  quadratic scan. A conflict diff between two long records no longer builds
+  a quadratic LCS table. `find` compiles a `$regex` once per query, not
+  once per record.
+
 ## 0.7.0 — 2026-10-25
 
 - **A commitment can be superseded by another.** A decision that replaces
@@ -188,6 +211,3 @@ The first release. Record format 1, JSON envelope version 1.
   `runtime.revision_days`, and `plied gc` prunes it.
 - **Git guards**, so that record files change only through plied in the
   canonical checkout.
-
-
-
