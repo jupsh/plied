@@ -409,6 +409,44 @@ Parts are separated by an ellipsis (`…` or `...`) with any surrounding
 whitespace. A quotation with no parts never matches. Matching is
 case-sensitive.
 
+### 3.7 Optional thread body summary
+
+A thread MAY contain an author-written synopsis in its Markdown body. This
+adds no frontmatter field, state or gate rule. Plied extracts the first
+eligible `## Summary` section that occurs before `## History`. Heading text
+is case-sensitive and must be exactly `Summary` (no closing `#` decoration),
+with zero to three leading spaces and optional trailing whitespace. A level
+1 or 2 ATX heading ends the section; level 3–6 headings remain part of it.
+An ATX heading has one to six `#` characters followed by whitespace or the
+end of the line. An empty first section is absent; later Summary sections
+do not replace it.
+
+Headings in indented code (four or more leading spaces or a leading tab) or
+fenced code are not section boundaries. A fence has at least three backticks
+or tildes and up to three leading spaces; its closing fence uses the same
+character at least as many times, followed only by whitespace. Backtick
+opening-fence information may not itself contain a backtick. This is a
+defined lightweight extraction convention, not a complete Markdown parser.
+The returned text joins section lines with LF and trims surrounding
+whitespace; internal Markdown is retained.
+
+Only plied threads have this derived synopsis. A commitment's optional
+frontmatter `summary` is unchanged. `body_summary` in JSON results is the
+full extraction or null, **not** a writable record field. It is shown with
+the source record's revision. Human orientation previews collapse whitespace
+and are limited to 240 Unicode characters, ending in an ellipsis when
+shortened. `show` retains the full record, including evidence references and
+commitment information; the summary never replaces that text.
+
+A summary is author-supplied prose. Extraction establishes neither accuracy
+nor freshness, approval, authority, evidence validity or applicability. It
+does not attach commitments, change their wording, pass a gate, or change a
+status. Ordinary mentions in its body text are still mentions, just as in any
+other prose. No automatic generation or separate summary revision is claimed.
+An old summary may remain after a substantive edit until an author updates
+it. A preview and its revision do not stand in for reading the full record
+before a checked write.
+
 ## 4. Linked sources
 
 Each `[[sources]]` entry makes the files its `glob` selects into linked records
@@ -860,6 +898,10 @@ Records are objects holding their frontmatter fields plus `id`, `kind`,
 `title`, `state`, `path`, `rev`, `body`, `text` and `own`. The results, by
 command:
 
+Thread objects additionally hold the read-only `body_summary` (§3.7), a
+string or null. This also appears on full thread records returned by `find`
+(which still omits `body` and `text`). No persisted field is added.
+
 | command | `result` |
 |---|---|
 | `init` | `{path}` |
@@ -871,8 +913,8 @@ command:
 | `list` | `[{id, kind, title, state, rev, path}]` |
 | `find` | records without `body` and `text` |
 | `backlinks` | `[{id, how}]`, as in `show` |
-| `tree` | `[{id, title, status, rev, children: [...]}]`; a thread met a second time in a `parent` cycle is `{id, cycle: true}` |
-| `frontier` | `{queues: {actor: [{id, next, title, rev}]}, unscheduled: [{id, actor, title, rev}], open_questions: [{id, title, rev}], dates: [{id, field, date, passed}]}`; `unscheduled` lists the open threads without `next`, so in no queue, in id order (`actor` null when unset; with `--actor`, only that actor's; added in 0.4.0); `dates` lists every date field on an unresolved record, earliest first, and `passed` says whether it asks for attention today. With `--actor`, `open_questions` and `dates` are empty: they are no one actor's, as the text output already showed only that actor's work |
+| `tree` | `[{id, title, status, rev, body_summary, children: [...]}]`; a thread met a second time in a `parent` cycle is `{id, cycle: true}` |
+| `frontier` | `{queues: {actor: [{id, next, title, rev, body_summary}]}, unscheduled: [{id, actor, title, rev, body_summary}], open_questions: [{id, title, rev}], dates: [{id, field, date, passed}]}`; `unscheduled` lists the open threads without `next`, so in no queue, in id order (`actor` null when unset; with `--actor`, only that actor's; added in 0.4.0); `dates` lists every date field on an unresolved record, earliest first, and `passed` says whether it asks for attention today. With `--actor`, `open_questions` and `dates` are empty: they are no one actor's, as the text output already showed only that actor's work |
 | `view` | `{path}`; with `--print` `{path, text}`; with `--check` `{path, current}`, exit 1 when not current |
 | `recover` | `{recovered: "finished", "undone" or null, files}` |
 | `gc` | `{removed}` |
@@ -930,6 +972,8 @@ describes the build; it does not promise that a pdfium shared library is install
 For a readable named record, `node` is `{id, show_args, messages_args,
 claims, commitments}`; otherwise it is null. A named missing or sealed
 record fails like `show`. Claims have the shape returned by `claim`.
+For a thread, `node` additionally includes its full raw-byte `rev` and
+read-only `body_summary` (§3.7), null when no synopsis is present.
 Without configuration, `configured` is false, unknown project fields are
 null or empty, blockers explain initialization, and `next` is `"plied init"`.
 Missing configuration is a successful discovery result, not a command
