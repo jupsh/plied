@@ -524,7 +524,7 @@ fn context_and_show_expose_node_conversation_and_presence_without_sealed_records
     let context = envelope(&p.run(&["context", "T001", "--json"]));
     let r = &context["result"];
     assert_eq!(r["configured"], true);
-    assert_eq!(r["canonical"], p.path().to_str().unwrap());
+    assert_eq!(std::fs::canonicalize(r["canonical"].as_str().unwrap()).unwrap(), p.path().canonicalize().unwrap());
     assert_eq!(r["vocabularies"]["actors"], serde_json::json!(["alice", "bob"]));
     assert_eq!(r["vocabularies"]["action_kinds"], serde_json::json!(["run", "report"]));
     assert_eq!(r["identity"]["agent"], "alice");
@@ -538,8 +538,8 @@ fn context_and_show_expose_node_conversation_and_presence_without_sealed_records
     p.git(&["worktree", "add", "-qb", "feature", linked.path().to_str().unwrap()]);
     let out = std::process::Command::new(bin()).arg("-C").arg(linked.path()).args(["context", "--json"]).output().unwrap();
     let r = envelope(&out);
-    assert_eq!(r["result"]["canonical"], p.path().to_str().unwrap());
-    assert_eq!(r["result"]["here"], linked.path().to_str().unwrap());
+    assert_eq!(std::fs::canonicalize(r["result"]["canonical"].as_str().unwrap()).unwrap(), p.path().canonicalize().unwrap());
+    assert_eq!(std::fs::canonicalize(r["result"]["here"].as_str().unwrap()).unwrap(), linked.path().canonicalize().unwrap());
     let runtime = p.path().join(".git/plied");
     let before: Vec<_> = std::fs::read_dir(&runtime).unwrap().map(|e| { let e=e.unwrap(); (e.file_name(), std::fs::metadata(e.path()).unwrap().modified().unwrap()) }).collect();
     p.ok(&["context", "T001", "--json"]); p.ok(&["schema", "thread", "--json"]);
