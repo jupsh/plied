@@ -35,3 +35,4 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       # the pdf feature is never built by the test jobs
       - run: cargo clippy --all-targets --features pdf -- -D warnings
+
