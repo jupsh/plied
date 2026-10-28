@@ -232,6 +232,14 @@ validator can report a problem. It can never approve a write or a gate.
 | A policy language | Attestations from a signing service that evaluates whatever policy it likes (Cedar, OPA) |
 | Immutability guarantees, resistance to rollback | Receipts and attestations make tampering detectable against a checkpoint. Trusting that checkpoint (a transparency log, a protected branch) is someone else's job |
 
+The optional [related-work companion example](../examples/related/README.md)
+prototypes semantic retrieval above the checked record model. It reuses the
+record reader and access policy but has its own experimental output, optional
+local model adapter and evaluation fixture. It neither adds semantic matching
+to core gates nor establishes that a retrieved conclusion applies to a new
+task. The [scope replay](../examples/scope/README.md) demonstrates recording
+that judgment separately, using existing fields.
+
 Encryption and lawful destruction both cut against plied's append-only,
 plaintext-in-git design. If either ever comes into scope, they should be
 designed together and late. Adding either as a feature would produce exactly

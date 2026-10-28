@@ -95,6 +95,12 @@ release in an independent temporary repository. The larger
 See [troubleshooting](docs/TROUBLESHOOTING.md) for nonzero JSON verdicts and
 recovery, and [development](docs/DEVELOPMENT.md) for contributing to the tool.
 
+The [scope comparison example](examples/scope/README.md) shows how to reuse a
+result for a renamed problem or covered subset while keeping a changed-premise
+task open. The optional [related-work companion](examples/related/README.md)
+retrieves candidate passages with keyword and local semantic matching. The
+agent still judges whether the earlier result applies.
+
 Records are written to `plied/threads/`, `plied/commitments/` and
 `plied/questions/`. The view is generated in `plied/README.md`. Commit them
 like any other file.
@@ -435,7 +441,9 @@ it.
   messages.
 - **Decide anything.** Approval, waivers and answers come from records with
   authority. Warnings never change a status.
-- **Semantic (embedding) search.** Not yet: keyword search comes first.
+- **Semantic (embedding) search in the core CLI.** Core search uses keywords.
+  The optional [related-work companion](examples/related/README.md) experiments
+  with local semantic retrieval; it supplies candidates for an agent to assess.
 - **Keep secrets.** Sealing controls what plied reads and shows. Sealed files
   are still plaintext in the clone and in git history. There is no
   encryption, and no secure deletion.

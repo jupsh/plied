@@ -20,6 +20,13 @@ jobs:
       - name: Replay the first-task onboarding workflow
         if: runner.os == 'Linux'
         run: python3 examples/first-task/replay.py --plied "$PWD/target/debug/plied"
+      - name: Replay scope decisions and check the optional retrieval companion
+        if: runner.os == 'Linux'
+        run: |
+          python3 examples/scope/replay.py --plied "$PWD/target/debug/plied"
+          cargo test --locked --example related
+          cargo build --locked --example related
+          python3 examples/related/test_related.py --plied "$PWD/target/debug/plied" --related "$PWD/target/debug/examples/related"
   pdf:
     runs-on: ubuntu-latest
     steps:

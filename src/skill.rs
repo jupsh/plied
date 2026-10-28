@@ -302,6 +302,43 @@ project accepts, in the decider's words, then set `answered_by` to that
 record. If you have no way to record it (a side conversation without tools),
 say so and ask for it to be sent where it can be.
 
+## Reusing a result: check its scope
+
+Before using an earlier outcome to settle a new task, read the cited evidence
+and record a short comparison on the new task:
+
+- **Mapping:** write the proposed object in the earlier result's notation.
+- **Assumptions:** say which necessary premises still hold, which changed,
+  and which remain unknown. A renamed object or a narrower subset may still
+  be covered; a changed parameter does not by itself escape the old result.
+- **Consequence:** say what the comparison supports: reuse the result,
+  investigate the changed case, or resolve a specific uncertainty. Name the
+  evidence that supports this judgment.
+
+A valid old result stays valid within its scope. Keep its closed outcome
+when opening a distinct task outside that scope. A new hypothesis does not
+by itself withdraw the old conclusion or show the new attempt will succeed.
+When the old conclusion or its rationale is defective, preserve the original
+claim and a linked correction explaining the reason and scope before changing
+the thread; reopening currently clears `outcome`, so retain it in that linked
+record first. A reference to a corrected result does not make every dependent
+conclusion invalid automatically.
+
+Use `uses` and `waiting_on` for actual dependencies: they carry applicable
+commitments, not a proof that a scientific conclusion transfers. Use a prose
+reference or `links` for a prior thread consulted only for comparison. Linking
+a commitment attaches it. Keep research preferences such as "avoid another
+unchanged sweep by default" in prose unless they are actual obligations.
+A genuine requirement to check hypotheses can be recorded as a commitment;
+the gate checks its recorded review, not the correctness of the judgment.
+
+For a consequential result, surface its **object, necessary assumptions,
+bounded conclusion, evidence and reconsideration condition** in the thread
+body at the decision, rather than waiting until hand-off. These are prose,
+not new fields. `revisit` is prose too: it does not reopen work automatically.
+Search results are candidates to inspect; a high similarity score does not
+establish applicability, and no search hits do not establish that work is new.
+
 ## Before you hand off
 
 For each node you claimed, note what is unfinished and where it is (a

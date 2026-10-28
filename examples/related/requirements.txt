@@ -1,0 +1,2 @@
+# Optional adapter dependencies; not dependencies of the Plied binary.
+fastembed==0.9.1
