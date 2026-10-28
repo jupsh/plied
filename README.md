@@ -121,6 +121,40 @@ repository. Regenerate it when plied is upgraded rather than editing the copy. W
 
 ## How it works
 
+### Optional thread summaries
+
+For a thread that is difficult to resume, add a short section in its body:
+
+```markdown
+## Summary
+E001 excludes integer solutions, including even-coordinate subsets.
+The real-coordinate case falls outside that proof and is being investigated
+in T004. Check E001's assumptions before reusing the exclusion.
+
+## Evidence and work
+The full reasoning, source references and continuation notes go here.
+```
+
+This is ordinary author-written Markdown. It is optional, with no new
+frontmatter field. Use `new --body FILE` when creating a thread. To update
+an existing thread, read its full text and revision with `show`, preserve the
+frontmatter and the rest of the file (including History), then use
+`plied replace ID FILE --expect REV --why "refresh the synopsis"`.
+`note` appends to History; a Summary heading there is not the current synopsis.
+
+`context ID`, JSON `show`/`tree`/`frontier`, and the generated view expose it
+for orientation. `body_summary` in JSON is read-only; human previews are
+limited to 240 characters and show an ellipsis when shortened. The optional
+retrieval companion searches it alongside original passages. The
+[scope replay](examples/scope/README.md) demonstrates the workflow.
+
+Include what the thread concerns, what is established and under which
+conditions, what remains unresolved or should happen next, and where the
+evidence lives. Keep it current when a substantive decision changes those
+facts. Plied does not establish that a summary is accurate or up to date:
+read the full record, evidence and exact commitment wording before acting.
+The summary cannot grant approval, satisfy a gate or change a status.
+
 ### One canonical checkout
 
 Every worktree of a repository shares one git common directory. plied treats
