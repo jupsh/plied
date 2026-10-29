@@ -6,6 +6,12 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Exclude a commitment's `nodes` attachment from stale-by-link warnings.
+  News about an attached thread or question no longer makes every attached
+  commitment stale. Direct mentions, explicit evidence links and a question's
+  `nodes` still count; commitment applicability and gates are unchanged.
+  ([#75](https://github.com/jupsh/plied/issues/75))
+
 ## 0.10.0 — 2026-10-28
 
 The record format and JSON envelope remain at version 1. Thread summaries
