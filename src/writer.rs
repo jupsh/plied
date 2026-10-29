@@ -45,7 +45,8 @@ pub struct Change {
     pub rid: String,
 }
 
-pub type Mutate<'m> = dyn FnMut(&mut Map) -> Res<String> + 'm;
+/// A mutation runs against the store loaded while the transaction owns the write lock.
+pub type Mutate<'m> = dyn FnMut(&Store, &mut Map) -> Res<String> + 'm;
 
 pub struct Writer<'a> {
     pub repo: &'a Repo,
@@ -96,6 +97,23 @@ impl<'a> Writer<'a> {
         let after = check::run(&proposed, &inputs);
         let mut new: Vec<check::Problem> = after.iter().filter(|p| p.level == Level::Error && !before.contains(&p.identity())).cloned().collect();
         for ch in &changes {
+            if let Some(updated) = proposed.get(&ch.rid).filter(|r| r.is(OwnKind::Commitment)) {
+                let previous = store.get(&ch.rid).and_then(|r| r.meta.get("reviews")).map(Node::items).unwrap_or_default();
+                let next = updated.meta.get("reviews").map(Node::items).unwrap_or_default();
+                // Every newly appended evidence claim has the same under-lock read preconditions,
+                // including claims supplied through generic set/replace rather than dispose.
+                if next.starts_with(previous) {
+                    for review in &next[previous.len()..] {
+                        for input in review.map().and_then(|rv| rv.get("inputs")).map(Node::items).unwrap_or_default() {
+                            if let Some(pin) = input.map().and_then(crate::review::ReadInput::from_map)
+                                && crate::review::full_revision(&pin.rev) && crate::review::input_id(&store, &pin.record) && pin.record != ch.rid
+                            {
+                                pin.check(&store)?;
+                            }
+                        }
+                    }
+                }
+            }
             if let (Some(old), Some(updated)) = (store.get(&ch.rid), proposed.get(&ch.rid)) {
                 for field in ["reviews", "scanned"] {
                     let previous = old.meta.get(field).map(Node::items).unwrap_or_default();
@@ -289,7 +307,7 @@ impl<'a> Writer<'a> {
                 what = if assignments.is_empty() { String::new() } else { apply_assignments(&mut meta, assignments)? };
             }
             if let Some(m) = mutate.as_deref_mut() {
-                let w = m(&mut meta)?;
+                let w = m(store, &mut meta)?;
                 if !w.is_empty() {
                     what = w;
                 }

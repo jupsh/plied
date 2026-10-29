@@ -28,6 +28,28 @@ along the way, questions waiting on authority, and messages to whoever is on a
 node. Records are plain files, but change them through `plied`: each write is
 checked, appends a history line, and names the revision it was made against.
 
+## Participants with limited record authority
+
+Read the project's authority rules before following the authoring guidance.
+If your role allows communication and presence but reserves record edits and
+dispositions to a lead, use this compact path:
+
+1. Discover `context`, establish a unique agent/session, and choose the actual node.
+2. Read the full node, its `messages`, and every applicable commitment with `review`.
+3. Claim the node, renew the lease before expiry, and work within your assigned scope.
+4. Read or acknowledge messages as authorized. Claiming work and acknowledging a
+   message confer no approval or record-edit authority.
+5. When a required disposition or record change exceeds your role, report the
+   proposed change and evidence to the authorized person. An unresolved gate
+   remains blocked; communication does not replace its required review.
+6. Send an authorized handoff with results, remaining work and current diagnostics,
+   then `release --this-session`. Leave authoritative record updates to their author.
+
+A communication-only participant still needs writable runtime storage for claims,
+messages and releases. `context` reports the selected runtime, but its filesystem
+writability is unverified: ordinary discovery performs no write probe. Storage
+permission and authority to edit tracked records are separate.
+
 ## Orient
 
 ```sh
@@ -70,12 +92,12 @@ after exit 3, `recover` for interrupted writes, `index` for a changed policy).
 `--help` groups commands by task; `COMMAND --help` gives exact arguments.
 
 The frontier is only as true as `actor` and `next`. When you take up a
-thread, set them (`actor=<you> next=1`; `actor` must be one of
+thread, if your role authorizes record edits, set them (`actor=<you> next=1`; `actor` must be one of
 `checks.actors` when the project sets that) in the same write as your first
 note on it; when you set it down, clear `next` or change its status, so the
 next session sees what is really queued. When you park work outside the
 record (a branch, a stash, scratch files, a run left going), note on the
-node what it is and where, at the time you park it, not at hand-off: a
+node what it is and where (or send the authorized author a handoff if you cannot edit records), at the time you park it, not at hand-off: a
 session can end without handing off, and a lease that lapses leaves no
 trace. Every write regenerates the view: there is no need to run
 `plied view` after writing. If `check` reports the view out of date,
@@ -290,6 +312,12 @@ read (`--peek` does not); `ack` is a receipt, never an approval.
 
 ## Closing, questions, authority
 
+When authoring a question, use existing `options`, `raised`, `nodes`, `links`
+and the body to state the choices and their consequences, what each approval
+authorizes or postpones, supporting evidence and remaining uncertainty. Attribute
+any recommendation to its author. Read the relevant originals; an orientation
+excerpt cannot establish that the evidence is complete or authorize an answer.
+
 Closing records what happened — it is not success, and it approves nothing
 downstream. A closed thread needs `outcome.quote` quoted (as for `wording`)
 from `outcome.ref`, plus `carries` for problems it leaves open. Set them in
@@ -364,14 +392,37 @@ never change a gate or a status. No automatic summary generation is implied.
 
 ## Before you hand off
 
-For each node you claimed, note what is unfinished and where it is (a
+If authorized to edit records, for each node you claimed, note what is unfinished and where it is (a
 branch, a stash, scratch files, a run still going), and set `next` or
-`status` to match. Then run `plied check`. Hand off with 0 errors and 0
+`status` to match. Otherwise send those details to the authorized author. Then run `plied check`. Hand off with 0 errors and 0
 warnings, or name every warning left standing and why (an unscanned
 record, a node whose review you did not note). Do not claim a clean check
 you did not run in this session. Then `plied release --this-session` so
 your claims stop showing you as on the node (they expire on their own, but
 later).
+
+## Optional orientation and diagnostic comparisons
+
+`show NODE --summary` shows a bounded orientation excerpt of current metadata,
+an existing author-written Summary or a labelled body preview, recent history
+and reference titles. `show NODE --freshness` and `frontier --freshness` expose
+current stale causes; `check --group-stale` groups their presentation by source.
+These views record no review and clear no warning. Read the full originals and
+exact commitment wording before acting or making a checked write.
+
+Save `plied check --json > baseline.json`, then use
+`plied check --baseline baseline.json --json` to compare current diagnostics.
+Use a baseline from the same access policy and `--errors-only` scope. The
+comparison tracks diagnostic identities and stale source revisions; it grants
+no waivers, makes no attribution of causes, and keeps the full current check's
+exit semantics.
+
+A disposition can record evidence revisions actually read with
+`dispose ... --read ID@FULL_SHA` (repeat for each read). Take every full SHA from
+the same `show --json` that supplied the text you examined. Changed evidence is
+reported by `check` and `review`; a history note cannot clear it. Read the changed
+evidence and append a new disposition. Pins do not retain evidence bytes and
+do not change the gate's existing decision rules.
 
 ## Exit codes
 
@@ -387,8 +438,8 @@ command failure has `error` (a conflict or refused write may have
 `error.detail`). Exit 3: re-read text, reconcile and retry. Exit 4: inspect
 the added diagnostics and correct the proposed change. Exit 5: inspect
 `context` and the pending intent; resolve branch/version blockers before
-`recover`. Exit 6: read the applicable commitments and record an honest
-disposition for that exact action. Never treat a nonzero exit as missing JSON.
+`recover`. Exit 6: read the applicable commitments and, if authorized, record an honest
+disposition for that exact action; otherwise request the required review and remain blocked. Never treat a nonzero exit as missing JSON.
 
 ## Commands (generated from this binary)
 

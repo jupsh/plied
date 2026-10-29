@@ -1,7 +1,9 @@
 # RFC 0001: Portable operations
 
-Status: **draft**. Nothing here is implemented. Its prerequisite, recoverable
-multi-file writes, is (FORMAT.md §11).
+Status: **draft**. Portable operations and receipts are not implemented.
+Recoverable multi-file writes are (FORMAT.md §11), as are optional explicit
+review evidence pins since 0.11.0 (§3.3, §8, §12). Their interaction with
+operations remains a design question below.
 
 ## Summary
 
@@ -193,12 +195,26 @@ Every result is versioned JSON with `--json`, failures included.
 4. **Retention of receipts.** They are small, but there is one per write,
    forever. Do they need archiving or compaction (SCOPE.md, scale) before
    they need anything else?
-5. **What did a review or approval examine?** Exact
-   operation bytes say what change was proposed. They don't say which
-   evidence revisions a disposition relied on, or which revision of a node an
-   approval covered. A later version could let an operation that records a
-   disposition or an approval carry those revisions. Until then, neither is
-   recorded.
+5. **Review inputs and approval subjects.** Since 0.11.0 a direct
+   `dispose --read ID@FULL_REV` can record optional `reviews.inputs` pairs
+   for explicitly read configured records. Direct writes compare newly
+   appended pins against the store loaded under the write lock. A portable
+   operation that appends a disposition must preserve those same read
+   preconditions at apply time, rather than silently pin whichever bytes
+   exist then. The operation's exact result bytes already retain the pin
+   values; the operation contract still needs to settle their read-set
+   representation and validation order.
+
+   Current input diagnostics are advisory and concern the latest disposition
+   per exact action; evidence changes do not alter gate verdicts. Unpinned
+   reviews remain unbound. A full raw-byte SHA-256 identifies evidence but
+   retains none: cache expiry does not provide retention, and recovering
+   bytes from git requires checking their raw-file hash, not treating the
+   pin as a git object id.
+
+   Which artifact revision an approval authorises remains a separate,
+   unresolved claim. A review input pin does not bind an approval's subject
+   or authenticate who made either claim.
 6. **Exit code for a reused id.** 3 (conflict) is proposed, matching a
    message id reused for different content (FORMAT.md §5). A new code would
    be more precise but adds to the CLI contract.

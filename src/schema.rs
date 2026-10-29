@@ -8,7 +8,8 @@ pub fn subfields(field: &str) -> Option<&'static [&'static str]> {
         "approval" => Some(&["state", "by"]),
         "outcome" => Some(&["quote", "ref"]),
         "cites" => Some(&["paper", "page", "quote", "kind", "image_checked", "note"]),
-        "reviews" => Some(&["action", "disposition", "at", "by", "because", "ref"]),
+        "reviews" => Some(&["action", "disposition", "at", "by", "because", "ref", "inputs"]),
+        "reviews.inputs" => Some(&["record", "rev"]),
         "scanned" => Some(&["record", "rev", "at", "by", "because"]),
         _ => None,
     }
@@ -69,9 +70,14 @@ pub fn describe(kind: OwnKind, cfg: Option<&Config>) -> Value {
             let mut values = enums(field).iter().find(|(n, _)| n == name).map_or(Value::Null, |(_, values)| json!(values));
             if full == "approval.state" { values = json!(["approved", "not approved"]); }
             if full == "reviews.disposition" { values = json!(Disposition::ALL); }
-            json!({"name": name, "type": if *name == "page" { "integer" } else { "string" }, "values": values,
+            json!({"name": name, "type": if *name == "page" { "integer" } else if full == "reviews.inputs" { "list" } else { "string" }, "values": values,
                 "required": matches!((*field, *name), ("approval", "state") | ("outcome", "quote" | "ref") | ("cites", "paper" | "page") | ("reviews", "action" | "disposition") | ("scanned", "record" | "rev")),
-                "references": if kind.ref_fields().contains(&full.as_str()) || full == "scanned.record" { targets(&full, cfg) } else { Value::Null }})
+                "references": if kind.ref_fields().contains(&full.as_str()) || full == "scanned.record" { targets(&full, cfg) } else { Value::Null },
+                "properties": if full == "reviews.inputs" { Some(vec![
+                    json!({"name": "record", "type": "string", "required": true, "references": targets("reviews.inputs.record", cfg)}),
+                    json!({"name": "rev", "type": "sha256", "required": true, "length": 64}),
+                ]) } else { None },
+                "items": if full == "reviews.inputs" { Some("mapping") } else { None }})
         }).collect::<Vec<_>>());
         json!({"name": field, "type": ty, "values": values, "properties": properties,
             "items": if list { Some(if properties.is_some() { "mapping" } else if reference { "reference" } else { "string" }) } else { None },

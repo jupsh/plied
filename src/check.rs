@@ -1,10 +1,10 @@
 //! Validation (FORMAT.md §8). Errors block writes and fail `plied check`; warnings change nothing.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::sync::LazyLock;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{NaiveDate, Utc};
 use regex::Regex;
 use serde::Serialize;
 
@@ -423,6 +423,7 @@ fn commitment(store: &Store, r: &Record, at: &str, p: &mut Report) {
     // reviews are only ever appended, so an index names the same review in every later state
     for (i, rv) in m.get("reviews").map(Node::items).unwrap_or_default().iter().enumerate() {
         let Some(rv) = rv.map() else { continue };
+        review_input_fields(store, r, rv, i, at, p);
         if rv.get("disposition").and_then(Node::str).and_then(Disposition::parse).is_none() {
             p.err("field", at, &format!("reviews[{i}].disposition"), format!("review disposition must be one of {}", one_of(Disposition::ALL)));
         }
@@ -434,6 +435,46 @@ fn commitment(store: &Store, r: &Record, at: &str, p: &mut Report) {
                     p.warn("action", at, format!("reviews[{i}]: {msg}"));
                 }
             }
+        }
+    }
+    for claim in crate::review::input_reviews(store, r, None) {
+        for (j, input) in claim.inputs.iter().enumerate().filter(|(_, input)| matches!(input.status, "changed" | "unavailable")) {
+            let message = if input.status == "changed" {
+                format!("review for {}: input {} changed since it was read; append a new disposition after reviewing it", claim.action, input.record)
+            } else {
+                format!("review for {}: input {} is unavailable (missing or possibly sealed)", claim.action, input.record)
+            };
+            p.warn_on("review-input", at, &format!("reviews[{}].inputs[{j}]", claim.review_index), message);
+        }
+    }
+}
+
+fn review_input_fields(store: &Store, record: &Record, review: &crate::doc::Map, index: usize, at: &str, p: &mut Report) {
+    let Some(values) = doc::set(review, "inputs") else { return };
+    let field = format!("reviews[{index}].inputs");
+    let Node::List(inputs) = values else {
+        p.err("field", at, &field, "review inputs must be a list of record/rev mappings");
+        return;
+    };
+    let mut seen = HashMap::new();
+    for (j, input) in inputs.iter().enumerate() {
+        let field = format!("{field}[{j}]");
+        let Some(input) = input.map() else { p.err("field", at, &field, "a review input must be a record/rev mapping"); continue };
+        for key in input.keys().filter(|key| !subfields("reviews.inputs").unwrap().contains(&key.as_str())) {
+            p.err("field", at, &format!("{field}.{key}"), format!("unknown review input field {key}"));
+        }
+        let id = doc::str_of(input, "record").filter(|id| crate::review::input_id(store, id));
+        if id.is_none() {
+            p.err("field", at, &format!("{field}.record"), "a review input needs an exact configured record id, without a locator");
+        } else if id == Some(record.id.as_str()) {
+            p.err("field", at, &format!("{field}.record"), "a review cannot pin its own commitment; --expect already guards it");
+        }
+        let rev = doc::str_of(input, "rev").filter(|rev| crate::review::full_revision(rev));
+        if rev.is_none() {
+            p.err("field", at, &format!("{field}.rev"), "a review input needs a full 64-character lowercase raw-byte SHA-256");
+        }
+        if let (Some(id), Some(rev)) = (id, rev) && let Some(previous) = seen.insert(id, rev) && previous != rev {
+            p.err("field", at, &format!("{field}.rev"), format!("conflicting review input revisions for {id}"));
         }
     }
 }
@@ -590,28 +631,12 @@ fn dates(store: &Store, p: &mut Report) {
 /// when it cites only what the node references. Named ones come first: they are the likelier to
 /// call for a change rather than a note.
 fn stale(store: &Store, p: &mut Report) {
-    let dated: Vec<(DateTime<Utc>, &Record)> = store.linked().filter_map(|r| r.when().map(|d| (d, r))).collect();
     let (mut named, mut via_links) = (vec![], vec![]);
     for n in store.own(None) {
-        let Some(last) = n.last_update() else { continue };
-        let refs: HashSet<String> = n.refs().into_iter().map(|(_, rid)| rid).collect();
-        // `parent` is organisational (§3.3): news about a group is the group's to review, not each child's.
-        // A resolved record's links are history: only a record naming it directly (perhaps to reopen it) counts.
-        let mut watch: HashSet<String> = if n.is_resolved() {
-            HashSet::new()
-        } else {
-            n.refs().into_iter().filter(|(f, _)| *f != "parent").map(|(_, rid)| rid).collect()
-        };
-        watch.insert(n.id.clone());
         let (mut by_name, mut by_links) = (vec![], vec![]);
-        for (_, r) in dated.iter().filter(|(d, r)| *d > last && !refs.contains(&r.id) && r.id != n.id) {
-            let mut hits: Vec<String> = store.mentions(&r.text).into_iter().filter(|t| watch.contains(t)).collect();
-            if hits.is_empty() {
-                continue;
-            }
-            hits.sort();
-            let entry = format!("{} (cites {})", r.id, hits.join(", "));
-            if hits.contains(&n.id) { by_name.push(entry) } else { by_links.push(entry) }
+        for cause in freshness(store, n) {
+            let entry = format!("{} (cites {})", cause.record, cause.mentions.join(", "));
+            if cause.subject == "named" { by_name.push(entry) } else { by_links.push(entry) }
         }
         let at = rel(&store.cfg.base, &n.path);
         if !by_name.is_empty() {
@@ -627,6 +652,84 @@ fn stale(store: &Store, p: &mut Report) {
     for (at, msg) in via_links {
         p.warn_on("stale", &at, "links", msg);
     }
+}
+
+/// A reference-field edge through which a newer source mentions a node's evidence.
+/// This is the one-hop stale heuristic, not the commitment applicability graph (§12).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct StaleLink {
+    pub field: String,
+    pub id: String,
+}
+
+/// One readable source that makes a node potentially stale (§8).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct StaleCause {
+    pub record: String,
+    pub rev: String,
+    pub subject: &'static str,
+    pub mentions: Vec<String>,
+    pub via: Vec<StaleLink>,
+}
+
+/// The existing stale check for one node, without running unrelated checks, opening a library,
+/// loading messages or writing a review. Only the access-filtered store participates.
+pub fn freshness(store: &Store, n: &Record) -> Vec<StaleCause> {
+    if !n.is_own() {
+        return vec![];
+    }
+    let Some(last) = n.last_update() else { return vec![] };
+    let refs = n.refs();
+    let referenced: HashSet<&str> = refs.iter().map(|(_, id)| id.as_str()).collect();
+    // Preserve §8: attachment and made count, parent does not; resolved nodes watch only themselves.
+    let watched: Vec<_> = refs.iter().filter(|(field, _)| !n.is_resolved() && *field != "parent").collect();
+    let mut causes = vec![];
+    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last)) {
+        let mentioned = store.mentions(&r.text);
+        let named = mentioned.contains(&n.id);
+        let mut via: Vec<_> = watched.iter().filter(|(_, id)| mentioned.contains(id)).map(|(field, id)| StaleLink { field: (*field).into(), id: id.clone() }).collect();
+        if !named && via.is_empty() {
+            continue;
+        }
+        via.sort();
+        via.dedup();
+        let mut mentions: BTreeSet<String> = via.iter().map(|link| link.id.clone()).collect();
+        if named {
+            mentions.insert(n.id.clone());
+        }
+        causes.push(StaleCause { record: r.id.clone(), rev: r.rev.clone(), subject: if named { "named" } else { "links" }, mentions: mentions.into_iter().collect(), via });
+    }
+    causes.sort_by(|a, b| (a.subject != "named", &a.record).cmp(&(b.subject != "named", &b.record)));
+    causes
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct StaleAffected {
+    pub id: String,
+    pub path: String,
+    pub mentions: Vec<String>,
+    pub via: Vec<StaleLink>,
+}
+
+/// An optional presentation grouped by cause. The ordinary per-node diagnostics remain intact.
+#[derive(Clone, Debug, Serialize)]
+pub struct StaleGroup {
+    pub record: String,
+    pub rev: String,
+    pub named: Vec<StaleAffected>,
+    pub links: Vec<StaleAffected>,
+}
+
+pub fn stale_groups(store: &Store) -> Vec<StaleGroup> {
+    let mut groups = BTreeMap::new();
+    for n in store.own(None) {
+        for cause in freshness(store, n) {
+            let group = groups.entry(cause.record.clone()).or_insert_with(|| StaleGroup { record: cause.record, rev: cause.rev, named: vec![], links: vec![] });
+            let affected = StaleAffected { id: n.id.clone(), path: rel(&store.cfg.base, &n.path), mentions: cause.mentions, via: cause.via };
+            if cause.subject == "named" { group.named.push(affected) } else { group.links.push(affected) }
+        }
+    }
+    groups.into_values().collect()
 }
 
 /// The first six entries, sorted, with an ellipsis for the rest.

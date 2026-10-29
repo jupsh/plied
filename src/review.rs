@@ -11,8 +11,113 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
+use serde::Serialize;
+
 use crate::doc::{self, Map, Node};
 use crate::records::{Applies, CommitmentState, Disposition, OwnKind, Record, Store, node_ref};
+
+/// Exact bytes explicitly read for a disposition; these are not graph references.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadInput {
+    pub record: String,
+    pub rev: String,
+}
+
+pub fn full_revision(rev: &str) -> bool {
+    rev.len() == 64 && crate::records::is_rev(rev)
+}
+
+/// A configured id, with no locator or source-file path.
+pub fn input_id(store: &Store, id: &str) -> bool {
+    !id.is_empty() && crate::records::ref_id(id) == id && !id.chars().any(char::is_whitespace) &&
+        (store.cfg.kinds.iter().any(|k| k.id_re.is_match(id)) || store.cfg.sources.iter().any(|s| s.id_re.is_match_start(id)))
+}
+
+impl ReadInput {
+    pub fn parse(value: &str) -> crate::error::Res<Self> {
+        let Some((record, rev)) = value.rsplit_once('@').filter(|(record, rev)| !record.is_empty() && full_revision(rev)) else {
+            return Err(crate::error::Fail::code(crate::error::EXIT_USAGE, "--read needs ID@REV, with the full 64-character lowercase SHA-256 from the read you judged"));
+        };
+        Ok(Self { record: record.into(), rev: rev.into() })
+    }
+
+    pub fn from_map(input: &Map) -> Option<Self> {
+        Some(Self { record: doc::str_of(input, "record")?.into(), rev: doc::str_of(input, "rev")?.into() })
+    }
+
+    pub fn node(&self) -> Node {
+        Node::Map(Map::from_iter([("record".into(), Node::Str(self.record.clone())), ("rev".into(), Node::Str(self.rev.clone()))]))
+    }
+
+    /// Called only against the store loaded under the transaction lock. No cache or sealed path is read.
+    pub fn check(&self, store: &Store) -> crate::error::Res<()> {
+        let current = store.get(&self.record);
+        if current.is_some_and(|r| r.rev == self.rev) {
+            return Ok(());
+        }
+        let message = if current.is_some() {
+            format!("{} changed since the review input was read; read it again", self.record)
+        } else {
+            format!("{} is unavailable (missing or possibly sealed); the review input cannot be verified", self.record)
+        };
+        Err(crate::error::Fail::code(crate::error::EXIT_CONFLICT, message).with_detail(serde_json::json!({
+            "id": self.record, "expected": self.rev, "current": current.map(|r| &r.rev)
+        })))
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct InputStatus {
+    pub record: String,
+    pub rev: String,
+    pub status: &'static str,
+    pub current: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct InputReview {
+    pub action: String,
+    pub review_index: usize,
+    /// `unbound`, `current`, `changed`, `unavailable` or `invalid`; never a gate verdict.
+    pub status: &'static str,
+    pub inputs: Vec<InputStatus>,
+}
+
+/// Evidence claims for the last disposition in list order for each exact action.
+pub fn input_reviews(store: &Store, record: &Record, action: Option<&str>) -> Vec<InputReview> {
+    let mut latest = std::collections::BTreeMap::new();
+    for (index, rv) in record.meta.get("reviews").map(Node::items).unwrap_or_default().iter().enumerate() {
+        if let Some(rv) = rv.map() && let Some(name) = doc::str_of(rv, "action").filter(|name| action.is_none_or(|a| *name == a)) {
+            latest.insert(name, (index, rv));
+        }
+    }
+    latest.into_iter().map(|(action, (review_index, rv))| {
+        let mut inputs = vec![];
+        let mut invalid = false;
+        let mut seen = HashMap::new();
+        if let Some(values) = doc::set(rv, "inputs") {
+            invalid = !matches!(values, Node::List(_));
+            for value in values.items() {
+                let Some(input) = value.map().and_then(ReadInput::from_map) else {
+                    invalid = true;
+                    inputs.push(InputStatus { record: String::new(), rev: String::new(), status: "invalid", current: None });
+                    continue;
+                };
+                invalid |= value.map().is_some_and(|m| m.keys().any(|key| !matches!(key.as_str(), "record" | "rev")));
+                if let Some(previous) = seen.insert(input.record.clone(), input.rev.clone()) { invalid |= previous != input.rev; }
+                let current = store.get(&input.record).map(|r| r.rev.clone());
+                let status = if !full_revision(&input.rev) || !input_id(store, &input.record) || input.record == record.id { "invalid" }
+                    else if current.is_none() { "unavailable" } else if current.as_deref() == Some(input.rev.as_str()) { "current" } else { "changed" };
+                inputs.push(InputStatus { record: input.record, rev: input.rev, status, current });
+            }
+        }
+        let status = if invalid || inputs.iter().any(|i| i.status == "invalid") { "invalid" }
+            else if inputs.is_empty() { "unbound" }
+            else if inputs.iter().any(|i| i.status == "unavailable") { "unavailable" }
+            else if inputs.iter().any(|i| i.status == "changed") { "changed" } else { "current" };
+        InputReview { action: action.into(), review_index, status, inputs }
+    }).collect()
+}
 
 pub struct Applicable<'s> {
     pub commitment: &'s Record,
