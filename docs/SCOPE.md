@@ -234,6 +234,28 @@ itself is sealed; and how to keep the withheld manifest from revealing the
 identifiers it withholds. Output formats and redaction rules are built
 outside plied.
 
+The design is accepted only when it meets these requirements, gathered from
+cases where a sceptic is handed the raw ledger rather than a summary
+([#37](https://github.com/jupsh/plied/issues/37)):
+
+- **The bytes that were judged, not only the current ones.** Where a
+  review pinned what it examined (`reviews.inputs`, FORMAT.md §3.3), the
+  closure carries those exact bytes with their hashes, verified against the
+  raw-file SHA-256, or says explicitly that the historical bytes are
+  unavailable. A pin identifies bytes; it does not recover them, so the
+  closure must not present the current revision as the one examined.
+- **Who supplied each file, apart from who is named as its author.** The
+  closure attributes the claimed author, the supplier or relay (the author,
+  a platform, a third party) and any verification of those claims
+  separately. A file supplied by a platform must not acquire the author's
+  attribution because it travelled with the author's work. This sits next
+  to relayed attribution (above), which should be designed with it.
+- **A withheld manifest that leaks nothing.** The closure says that it is
+  incomplete without revealing protected ids, paths or content hashes. Even
+  counts and relationships between withheld items can disclose; the design
+  states what is safe to reveal, and its acceptance tests check exactly
+  that, for sealed evidence and for references into sealed records.
+
 **External reference helpers.** References such as `gh:org/repo#4821` or
 `repo:satellite/T004` would be resolved by optional helper programs, like
 git's credential and remote helpers. This brings program execution and
