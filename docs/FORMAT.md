@@ -1001,7 +1001,7 @@ string or null. This also appears on full thread records returned by `find`
 | `skill` | `{version, skill}`: the agent skill as Markdown text, rendered from this binary's version and command inventory. Needs no repository. Without `--json` the skill itself is the stdout text. |
 | `context [NODE]` | project and identity discovery (§11.2), including an unconfigured directory; never writes records or runtime state |
 | `schema KIND` | record fields, examples and configured vocabularies (§11.2); works without a project |
-| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`, `messages_args: ["messages", ID]` and `claims: [claim]`; a plied thread or question also has `commitments: [{id, rev, state, title, chains, governs}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0; `governs` in 0.7.0, null when absent) |
+| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`, `messages_args: ["messages", ID]` and `claims: [claim]`; with `--refs`, `refs` (below; added in 0.12.0); a plied thread or question also has `commitments: [{id, rev, state, title, chains, governs}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0; `governs` in 0.7.0, null when absent) |
 | `new`, `set`, `note`, `replace`, `dispose`, `scanned` | `{id, rev}`: the record written |
 | `list` | `[{id, kind, title, state, rev, path}]` |
 | `find` | records without `body` and `text` |
@@ -1045,6 +1045,21 @@ complete, ordered named before links then by source id; they are empty
 for a linked record or a node with no history. They expose only the loaded
 access-filtered store. Actor filtering still applies to every frontier
 section.
+
+`show --refs` adds `refs: {records, unavailable}`: the records the shown
+record references (§3.4) through its reference fields, one hop, in
+reference order, each once. A record is `{id, kind, title, state, path,
+rev, via, preview}`, plus `wording` for a commitment and `commitments` (as
+in `show`, with chains) for a plied thread or question. `via` lists the
+fields naming it. `preview` is null or `{from, text}`: the record's
+author-written Summary (§3.7) when it has one (`from: "summary"`), else its
+first body paragraph before History (`"body"`), whitespace collapsed and cut
+to 400 characters with an ellipsis. A reference that names no readable record
+is `{id, via}` in `unavailable`, which says no more than the shown record
+does: the reference may be broken or sealed (§9). The view goes no further
+than one hop, and is retrieval assistance: it is not evidence closure, a
+recommendation, a permission or a review, and the originals stay the thing
+to read before acting.
 
 `check --group-stale` adds
 `stale_groups: [{record, rev, named, links}]`, in source-id order. Each

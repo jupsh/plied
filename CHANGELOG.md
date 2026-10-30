@@ -6,6 +6,14 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Add `show --refs`: the records a record references, one hop, with
+  provenance (kind, path, revision, referencing fields), a bounded preview,
+  a commitment's wording, and the commitments that apply to a referenced
+  thread or question. Unreadable references are listed only by the id and
+  field the record already shows. For a question this collects its raising
+  record, evidence and affected threads.
+  ([#84](https://github.com/jupsh/plied/issues/84))
+
 ## 0.11.0 — 2026-10-29
 
 The record format and JSON envelope remain at version 1. Stores using

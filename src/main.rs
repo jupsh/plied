@@ -76,6 +76,9 @@ enum Cmd {
         /// include current stale causes without recording a review
         #[arg(long)]
         freshness: bool,
+        /// also the records this one references, one hop: provenance, a bounded preview, and for threads and questions their commitments. Read the originals before acting
+        #[arg(long)]
+        refs: bool,
     },
     /// create a record
     New {
@@ -558,7 +561,7 @@ fn run(cli: &Cli) -> Res<i32> {
 fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
     let json = cli.json;
     match &cli.cmd {
-        Cmd::Show { id, summary, freshness } => cmd_show(ctx, id, *summary, *freshness, json),
+        Cmd::Show { id, summary, freshness, refs } => cmd_show(ctx, id, *summary, *freshness, *refs, json),
         Cmd::New { kind, title, assign, set_file, body, why, who } => {
             let kind = OwnKind::parse(kind).unwrap();
             let who = who_of(who, true)?;
@@ -958,7 +961,7 @@ fn backlinks(st: &Store, rid: &str) -> Vec<(String, Vec<String>)> {
     out
 }
 
-fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, json: bool) -> Res<i32> {
+fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, refs: bool, json: bool) -> Res<i32> {
     let st = ctx.store()?;
     let r = st.get(id).ok_or_else(|| Fail::new(format!("no record {id}")))?;
     let data = std::fs::read(&r.path).unwrap_or_default();
@@ -977,6 +980,9 @@ fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, json: bool) -> 
         if freshness {
             o.insert("freshness".into(), json!(check::freshness(&st, r)));
         }
+        if refs {
+            o.insert("refs".into(), refs_json(ctx, &st, r));
+        }
         out_json(&Value::Object(o));
         return Ok(0);
     }
@@ -988,7 +994,92 @@ fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, json: bool) -> 
             outln!("  {} (rev {}, {}) — mentions {}", cause.record, doc::take(&cause.rev, 12), cause.subject, cause.mentions.join(", "));
         }
     }
+    if refs {
+        outln!("{}", refs_text(&refs_json(ctx, &st, r)));
+    }
     Ok(0)
+}
+
+/// The records `r` references, one hop (FORMAT.md §11.1, `show --refs`): what each is and where it came
+/// from, a bounded preview, a commitment's wording, and the commitments that apply to a referenced
+/// thread or question. A reference that names nothing readable is listed by the id and fields the
+/// readable record already shows, never by anything about what it may hide.
+fn refs_json(ctx: &Ctx, st: &Store, r: &Record) -> Value {
+    let mut order: Vec<String> = vec![];
+    let mut via: std::collections::HashMap<String, Vec<&'static str>> = Default::default();
+    for (field, id) in r.refs() {
+        let fields = via.entry(id.clone()).or_default();
+        if fields.is_empty() {
+            order.push(id);
+        }
+        if !fields.contains(&field) {
+            fields.push(field);
+        }
+    }
+    let (mut records, mut unavailable) = (vec![], vec![]);
+    for id in &order {
+        let Some(x) = st.get(id).filter(|x| x.id != r.id) else {
+            if st.get(id).is_none() {
+                unavailable.push(json!({"id": id, "via": via[id]}));
+            }
+            continue;
+        };
+        let mut o = json!({"id": x.id, "kind": x.kind.name(), "title": x.title(), "state": x.state_str(),
+            "path": fsx::rel(&ctx.repo.cfg.base, &x.path), "rev": x.rev, "via": via[id], "preview": body_preview(x)});
+        if x.is(OwnKind::Commitment) {
+            o["wording"] = json!(doc::text(&x.meta, "wording"));
+        }
+        if takes_commitments(x) {
+            o["commitments"] = commitments_json(&node_commitments(st, x));
+        }
+        records.push(o);
+    }
+    json!({"records": records, "unavailable": unavailable})
+}
+
+fn refs_text(refs: &Value) -> String {
+    let records = refs["records"].as_array().cloned().unwrap_or_default();
+    let unavailable = refs["unavailable"].as_array().cloned().unwrap_or_default();
+    let fields = |v: &Value| v["via"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", ");
+    let mut l = vec![String::new(), format!(
+        "References, one hop: {} readable, {} unavailable. Previews are shortened; read each original before acting on it.",
+        records.len(), unavailable.len())];
+    for x in &records {
+        let s = |k: &str| x[k].as_str().unwrap_or_default().to_string();
+        l.push(String::new());
+        l.push(format!("{} ({}, via {})  {}", s("id"), s("kind"), fields(x), s("title")));
+        l.push(format!("  state: {}   rev: {}   file: {}", x["state"].as_str().unwrap_or("(unset)"), doc::take(&s("rev"), 12), s("path")));
+        if let Some(w) = x["wording"].as_str() {
+            l.push(format!("  wording: “{w}”"));
+        }
+        if let Some(p) = x["preview"]["text"].as_str() {
+            l.push(format!("  {}: {p}", if x["preview"]["from"] == "summary" { "summary (author-written)" } else { "body preview" }));
+        }
+        for c in x["commitments"].as_array().into_iter().flatten() {
+            let chains = c["chains"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join("; ");
+            l.push(format!("  commitment {} [{}] {} — applies via {chains}", c["id"].as_str().unwrap_or_default(), c["state"].as_str().unwrap_or("(unset)"), c["title"].as_str().unwrap_or_default()));
+        }
+    }
+    for u in &unavailable {
+        l.push(format!("\n{} (via {}): unavailable — missing, or possibly sealed", u["id"].as_str().unwrap_or_default(), fields(u)));
+    }
+    l.join("\n")
+}
+
+/// A bounded preview of a record's body: its author-written Summary (§3.7) when it has one,
+/// else its first paragraph before History, collapsed and cut to 400 characters. None when empty.
+fn body_preview(r: &Record) -> Value {
+    fn excerpt(text: &str, limit: usize) -> String {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let head = doc::take(&flat, limit);
+        if head.len() < flat.len() { format!("{head}…") } else { flat }
+    }
+    if let Some(summary) = r.body_summary() {
+        return json!({"from": "summary", "text": excerpt(&summary, 400)});
+    }
+    let body = if r.body.trim_start().starts_with("## History\n") { "" } else { r.body.split("\n## History").next().unwrap_or(&r.body) };
+    let first = body.split("\n\n").find(|p| !p.trim().is_empty()).unwrap_or("");
+    if first.trim().is_empty() { Value::Null } else { json!({"from": "body", "text": excerpt(first, 400)}) }
 }
 
 /// Orientation only: every free-text section has a character or item bound.

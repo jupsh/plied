@@ -1055,6 +1055,36 @@ fn a_stale_warning_says_whether_the_node_was_named_and_named_ones_come_first() {
     assert!(stale[1].0.contains("T001-") && stale[1].1 == "links", "{stale:?}");
 }
 
+#[test]
+fn show_refs_expands_one_hop_without_naming_what_it_cannot_read() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"decision\"\nglob = \"d/*.md\"\nid = \"^D[0-9]{3}$\"\n");
+    std::fs::create_dir_all(p.path().join("d")).unwrap();
+    std::fs::write(p.path().join("d/D001.md"), "---\nid: D001\ntitle: Pilot\n---\nThe pilot showed a small effect; rerun or ship.\n\nMore detail.\n").unwrap();
+    std::fs::write(p.path().join("d/D002.md"), "---\nid: D002\ntitle: secret\n---\nhidden words\n").unwrap();
+    p.ok(&["new", "thread", "--title", "Rerun the pilot"]);
+    p.ok(&["new", "commitment", "--title", "Prereg first", "made=D001", "wording=rerun or ship", "nodes=[T001]"]);
+    p.ok(&["new", "question", "--title", "Rerun or ship?", "raised=D001", "nodes=[T001]", "links=[D002, D001, P01]"]);
+    p.edit("plied.toml", "sealed = []", "sealed = [\"D002\"]");
+
+    let v = envelope(&p.run(&["show", "Q01", "--refs", "--json"]));
+    let refs = &v["result"]["refs"];
+    let ids: Vec<&str> = refs["records"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["D001", "T001", "P01"], "reference order, each once");
+    let d1 = &refs["records"][0];
+    assert_eq!(d1["via"], serde_json::json!(["raised", "links"]));
+    assert_eq!((d1["kind"].as_str(), d1["path"].as_str()), (Some("decision"), Some("d/D001.md")));
+    assert_eq!(d1["rev"], p.rev("D001"));
+    assert_eq!(d1["preview"], serde_json::json!({"from": "body", "text": "The pilot showed a small effect; rerun or ship."}));
+    let t1 = &refs["records"][1];
+    assert_eq!(t1["commitments"][0]["id"], "P01");
+    assert_eq!(t1["commitments"][0]["chains"][0], "T001 ← P01 (attached)");
+    assert_eq!(refs["records"][2]["wording"], "rerun or ship");
+    assert_eq!(refs["unavailable"], serde_json::json!([{"id": "D002", "via": ["links"]}]));
+    assert!(!v.to_string().contains("hidden words") && !v.to_string().contains("secret"), "nothing of the sealed record: {v}");
+    assert!(envelope(&p.run(&["show", "Q01", "--json"]))["result"].get("refs").is_none(), "opt-in");
+}
+
 // ------------------------------------------------------------------------ §7 the view
 
 #[test]
