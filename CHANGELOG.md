@@ -6,6 +6,54 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Add `show --refs`: the records a record references, one hop, with
+  provenance (kind, path, revision, referencing fields), a bounded preview,
+  a commitment's wording, and the commitments that apply to a referenced
+  thread or question. Unreadable references are listed only by the id and
+  field the record already shows. For a question this collects its raising
+  record, evidence and affected threads.
+  ([#84](https://github.com/jupsh/plied/issues/84))
+- Show linked work beside the frontier. A `[[sources]]` entry may list
+  `show_fields`; `frontier --linked` and `show --linked` then list the
+  linked records each plied record references from such sources, with
+  their source, path, revision, referencing fields, status and listed
+  fields (null when unstated). Values are shown, never interpreted.
+  Frontier rows also carry plied's own live `claims`.
+  ([#78](https://github.com/jupsh/plied/issues/78))
+- Act on the first unfamiliar-agent acceptance run
+  ([#65](https://github.com/jupsh/plied/issues/65)). `claim` lists the other
+  live claims on the node (`others` in JSON), and lease times show their
+  date. `dispose --help` describes every argument, including the
+  dispositions. The skill gains a start-to-finish path, a session id that
+  is unique in its first 8 characters and stable across commands, guidance
+  on committing record files, authority rules, pins, `outcome.ref` and
+  messages addressed to someone else. `context` reports where the session
+  came from (`identity.session_source`), since subagents inherit
+  `CLAUDE_CODE_SESSION_ID`. A passing gate says so on stderr, and an
+  unpinned review's `unbound` evidence is explained.
+  ONBOARDING-VALIDATION.md records both runs.
+- Let a review clear only the records it covers. `note` and `set` take
+  `--reviewed ID@REV` (repeatable). The write's history line becomes a
+  scoped review naming those linked records at the revisions read, checked
+  under the write lock. A scoped review does not count as the node's last
+  update, so other newer records keep the node stale, and an edit to a
+  reviewed record makes it stale again. Ordinary writes still review
+  everything newer. Earlier plied reads a scoped review as an ordinary
+  update, so stores whose writers use it should set
+  `requires = ">=0.12.0"`. ([#85](https://github.com/jupsh/plied/issues/85))
+- Say when plied changed under a session. Each command run in a session
+  compares the running plied version and the store's `requires` with what
+  that session first saw, and notes a change once, pointing to
+  `plied skill`. The agent hook puts the same note in the agent's context,
+  and `context` reports the baseline as `session_seen`.
+  ([#89](https://github.com/jupsh/plied/issues/89))
+- Make an action kind that `checks.action_kinds` refuses recoverable. The
+  usage error from `review --gate` and `dispose` names the config file and
+  key and gives the exact line to ask for; with `--json`, `error.detail`
+  carries the same facts. `review --action` without `--gate` now accepts any
+  kind, with a note, so an agent can see which commitments would govern the
+  step before asking. ([#88](https://github.com/jupsh/plied/issues/88))
+
 ## 0.11.0 — 2026-10-29
 
 The record format and JSON envelope remain at version 1. Stores using

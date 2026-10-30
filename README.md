@@ -387,8 +387,10 @@ links to them. Each `[[sources]]` entry names a glob, the frontmatter field
 holding the id, and an id pattern. It can also name fields for the date, time,
 status, authority and scope, and set `scan_commitments` (warn about
 conditionals and deferrals that no commitment records) and `require_linked`
-(warn when no plied record links to an item). Linked records stay
-authoritative: plied cites them and never restates them.
+(warn when no plied record links to an item). `show_fields` names fields to
+show beside the plied records that reference an item, for example a
+backlog's priority, size and owner, with `plied frontier --linked`. Linked
+records stay authoritative: plied cites them and never restates them.
 
 When a scanned record turns out to hold no commitment, say so on a thread, and
 the warning stays quiet until the record changes:

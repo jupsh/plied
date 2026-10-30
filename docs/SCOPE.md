@@ -143,8 +143,10 @@ evidence survives. Without the cached revision, a conflict is still refused,
 just without a diff.
 
 **Action kinds** (§12). An action is `kind` or `kind:instance`. With
-`checks.action_kinds` set, `review` and `dispose` refuse an unknown kind
-(exit 2). `check` only warns about reviews recorded before the vocabulary
+`checks.action_kinds` set, `review --gate` and `dispose` refuse an unknown kind
+(exit 2). A read-only `review --action` still previews its commitments and
+notes the refusal, so the caller can request the exact configuration change.
+`check` only warns about reviews recorded before the vocabulary
 existed. A commitment can name the kinds it `governs`, which needs the
 vocabulary, so that a misspelt kind is an error rather than an open gate. The gate still compares whole names. It does not check that the
 caller chose the right nodes, or that the gate was run at all.

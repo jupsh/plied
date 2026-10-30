@@ -84,6 +84,7 @@ Regular expressions and templates MUST be checked when the file is loaded.
 | | `id_field`, `title_field` | string | `id`, `title` | frontmatter fields |
 | | `date`, `time`, `status`, `authority`, `scope` | string | none | frontmatter fields holding these |
 | | `scan_commitments`, `require_linked` | boolean | false | warnings, §8 |
+| | `show_fields` | list of strings | `[]` | frontmatter fields shown by `--linked` (§4). Added in 0.12.0 |
 | `access` | `sealed` | list of strings | `[]` | sealed substrings (§9) |
 | | `sealed_file` | string | none | file of sealed substrings, one per line, `#` comments |
 | `search` | `include`, `exclude` | list of strings | `["<root>/**/*.md"]`, `[]` | search allowlist and denylist (§2.2) |
@@ -391,7 +392,21 @@ line):
 ```
 
 The time is the minute of the change according to the writing machine's
-clock. A node's *last update* is its latest history line.
+clock. A node's *last update* is its latest history line that is not a
+scoped review line.
+
+A **scoped review line** (since 0.12.0) is one whose `<what>` starts with
+`reviewed ` and a list of one or more `ID@REV`, separated by `, `, followed
+by the end of the line, `; ` or ` — `. Agent and session names may contain
+`:`; the `: reviewed ` delimiter is still recognised. `REV` is 8 to 64 lowercase hex digits; `note --reviewed` and `set
+--reviewed` write 12. The line says that the writer judged the node against
+those linked records at those revisions, and against nothing else, so it
+does not move the last update on (§8). Whatever else the same write changed,
+it vouches for no other record. A line in this form written by hand counts
+the same: it can only cover bytes whose revision starts with `REV`, so a
+wrong revision covers nothing. An earlier plied reads such a line as an
+ordinary update, which reviews everything newer. A store whose writers use
+scoped reviews should set `requires = ">=0.12.0"`.
 
 Record dates are claims by the writer, not evidence that the record existed
 before an external event. History times and a review's `at` use the writing
@@ -506,6 +521,21 @@ order:
 | has a scope without the thread, question or commitment | error |
 | anything else | accepted |
 
+**Linked work.** A source that lists `show_fields` (since 0.12.0) is a work
+system whose records orientation can show beside the plied records that
+reference them, so an agent choosing a task need not open each one.
+`frontier --linked` and `show --linked` list, for each displayed record, the
+readable linked records it references (§3.4, through any reference field)
+from such sources, in reference order, each once: `{record, source, path,
+rev, via, status, fields}`. `via` lists the reference fields naming it,
+`status` is the value of the source's `status` field (null when the source
+declares none or the record lacks it), and `fields` maps each listed name to
+the value as the record's frontmatter states it, null when absent. Values are
+shown, never interpreted: an open status is not permission, a priority
+schedules nothing, and an owner or claim field of the linked system is not a
+plied claim (§6), which `frontier` reports separately. A reference to a
+record that is missing or sealed is not listed; `check` reports it.
+
 A warning does not stop the approval, answer or waiver from counting. A
 passing check therefore means only this: a linked record says it has one of
 the allowed authorities, and names the node in its scope. It does not
@@ -569,6 +599,7 @@ earlier in the same log; anything else is an error.
 | `written.txt` | revisions plied wrote, as hashes, one per line; the commit guard accepts only these. Pruning never touches it |
 | `intent.json` | present only while a write is in progress or was interrupted: `{"version": 1, "state": "prepare" \| "commit", "files": [{path, tmp, prev, sha}]}`. Paths are absolute (§11) |
 | `sessions/<session>.json` | private: hook state |
+| `seen/<session>.json` | private: the plied version and store `requires` a session first saw (§11, *Session baseline*). Added in 0.12.0 |
 | `index.json` | private: search index, refused when built under another access policy |
 | `hashcache.json`, `papers/`, `paper-img/` | private: literature caches |
 
@@ -671,7 +702,10 @@ other than `parent` or a commitment's `nodes`. To *mention* is to
 contain the id anywhere in the linked record's file text, frontmatter
 included, with no letter, digit or `_` directly before or after it. A linked
 record that the record itself references never makes it stale, and a record
-with no history line is never stale. `parent` is left out because it is
+with no history line other than scoped review lines is never stale. Nor does a
+linked record that a scoped review line in the record's history names with a
+revision its current revision starts with (§3.5); a later edit of that record
+makes it news again. `parent` is left out because it is
 organisational (§3.3): a record about a group makes the group stale, not
 each of its children. (Before 0.4.0, `parent` counted.) A commitment's `nodes`
 attaches the obligation (§12); news about an attached thread or question is
@@ -851,7 +885,18 @@ integer when it is all digits, and as text otherwise. List fields (§3.3) given
 a single value hold a one-item list. `id` can never be assigned. Each write
 appends one history line (§3.5) that says what changed, followed by `--why`.
 
-**Other writes.** `plied note` adds only a history line. `plied replace`
+**Other writes.** `plied note` adds only a history line.
+
+`note` and `set` take a repeatable `--reviewed ID@REV`: a linked record the
+caller read and judged the node against, with the revision it read (at
+least 8 hex digits). The history line then starts with a scoped review
+(§3.5) naming each at its current revision's first 12 digits, followed by
+`; ` and the rest. Under the write lock, every named record must be
+readable, linked and still at a revision starting with `REV`. A missing or
+possibly sealed record, or a plied record, is an error (exit 1), and a
+changed one a conflict (exit 3, `detail` naming it), so the review covers
+what was read. Malformed values are usage errors (exit 2). A named record
+that does not currently make the node stale is recorded anyway, with a note. `plied replace`
 takes a whole file. It must keep the record's id, and it gets a history line
 like any write. `plied dispose` appends one `reviews` item (§3.3) and never
 edits an earlier one. `plied scanned R --rev REV --on T --because …`
@@ -884,6 +929,19 @@ order. Appending is allowed; deleting, editing or reordering existing entries
 is refused with exit 4 and an `append-only` diagnostic (subject: the list
 field, location: the record path). This is a write-time comparison, not a
 claim of tamper resistance against direct edits or rewritten git history.
+
+**Session baseline.** An agent reads `plied skill` early and then works
+from it, so another session upgrading plied or raising `requires` can leave
+its guidance out of date while every command still succeeds. Since 0.12.0,
+each command that loads a configured store in an effective session (as for
+`release --this-session`) compares the running version and the store's
+`requires` with what that session first saw. The first sight records the
+baseline silently. A difference adds one note naming both changes and
+pointing to `plied skill`, then records the new baseline, so the note is
+given once per change. `plied hook claude` does the same on events that can
+carry context and puts the note in the agent's context. A session id that is
+not a single file name has no baseline. `context` only reads it (§11.2).
+Failing to read or write the baseline never changes a command's outcome.
 
 **Side effects of reading.** `plied inbox` records `read` for the messages it
 shows, unless `--peek` is given. `plied show` adds the revision it shows to
@@ -979,8 +1037,9 @@ not:
   `kind` is `general`, `literature`, `policy` or `query`. `message` is free
   text. `detail` is present for a conflict
   (`{"id", "expected", "current"}`, with `current` null when the record is
-  absent) and for a write that would add errors (`{"diagnostics": [...]}`,
-  diagnostics as in §8).
+  absent), for a write that would add errors (`{"diagnostics": [...]}`,
+  diagnostics as in §8), and for an action whose kind `checks.action_kinds`
+  refuses (§12).
 - `notes` lists things worth knowing that are not the result, as text, for
   example that recovery finished an earlier write (§11) or that a read may
   mix old and new files.
@@ -1001,7 +1060,7 @@ string or null. This also appears on full thread records returned by `find`
 | `skill` | `{version, skill}`: the agent skill as Markdown text, rendered from this binary's version and command inventory. Needs no repository. Without `--json` the skill itself is the stdout text. |
 | `context [NODE]` | project and identity discovery (§11.2), including an unconfigured directory; never writes records or runtime state |
 | `schema KIND` | record fields, examples and configured vocabularies (§11.2); works without a project |
-| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`, `messages_args: ["messages", ID]` and `claims: [claim]`; a plied thread or question also has `commitments: [{id, rev, state, title, chains, governs}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0; `governs` in 0.7.0, null when absent) |
+| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`, `messages_args: ["messages", ID]` and `claims: [claim]`; with `--linked`, `linked` (§4); with `--refs`, `refs` (below; added in 0.12.0); a plied thread or question also has `commitments: [{id, rev, state, title, chains, governs}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0; `governs` in 0.7.0, null when absent) |
 | `new`, `set`, `note`, `replace`, `dispose`, `scanned` | `{id, rev}`: the record written |
 | `list` | `[{id, kind, title, state, rev, path}]` |
 | `find` | records without `body` and `text` |
@@ -1012,7 +1071,7 @@ string or null. This also appears on full thread records returned by `find`
 | `recover` | `{recovered: "finished", "undone" or null, files}` |
 | `gc` | `{removed}` |
 | `check` | `{diagnostics, errors, warnings, records, linked, config, comparison_basis}`; with `--baseline FILE`, also `comparison`; with `--group-stale`, also `stale_groups` (below) |
-| `claim` | a claim (§6), plus `commitments` as in `show`, empty unless the node is a plied thread or question (added in 0.6.0). Without `--json`, `claim` lists them too. `--ttl` is a positive number of minutes; 0 or absent uses `messages.lease_minutes`, and a negative value is a usage error (exit 2) |
+| `claim` | a claim (§6), plus `commitments` as in `show`, empty unless the node is a plied thread or question (added in 0.6.0), and `others`, the other live claims on the node (another agent, or this agent in another session; added in 0.12.0). Without `--json`, `claim` lists both too. `--ttl` is a positive number of minutes; 0 or absent uses `messages.lease_minutes`, and a negative value is a usage error (exit 2) |
 | `release` | `{released}` |
 | `who` | claims, each with `expires` |
 | `send` | `{event, recorded_now}`; `recorded_now` is false for a retry (§5) |
@@ -1036,7 +1095,9 @@ version. Fields are never removed or retyped without a new one.
 
 Since 0.11.0, `show --freshness` adds `freshness` to its record, and
 `frontier --freshness` adds `freshness` to every displayed queue,
-unscheduled, question and date row. An array item is
+unscheduled, question and date row. Since 0.12.0, every frontier row also
+has `claims`, the live plied claims on its record (§6), and
+`frontier --linked` adds `linked` (§4) to every row. An array item is
 `{record, rev, subject, mentions, via}`: the readable newer source id and
 full raw-byte revision, `subject` (`named` or `links`), sorted unique ids
 mentioned, and sorted unique reference edges `via: [{field, id}]`. A
@@ -1045,6 +1106,21 @@ complete, ordered named before links then by source id; they are empty
 for a linked record or a node with no history. They expose only the loaded
 access-filtered store. Actor filtering still applies to every frontier
 section.
+
+`show --refs` adds `refs: {records, unavailable}`: the records the shown
+record references (§3.4) through its reference fields, one hop, in
+reference order, each once. A record is `{id, kind, title, state, path,
+rev, via, preview}`, plus `wording` for a commitment and `commitments` (as
+in `show`, with chains) for a plied thread or question. `via` lists the
+fields naming it. `preview` is null or `{from, text}`: the record's
+author-written Summary (§3.7) when it has one (`from: "summary"`), else its
+first body paragraph before History (`"body"`), whitespace collapsed and cut
+to 400 characters with an ellipsis. A reference that names no readable record
+is `{id, via}` in `unavailable`, which says no more than the shown record
+does: the reference may be broken or sealed (§9). The view goes no further
+than one hop, and is retrieval assistance: it is not evidence closure, a
+recommendation, a permission or a review, and the originals stay the thing
+to read before acting.
 
 `check --group-stale` adds
 `stale_groups: [{record, rev, named, links}]`, in source-id order. Each
@@ -1108,9 +1184,15 @@ per-record revision requirements above.
 
 `context [NODE]` returns `{version, configured, canonical, here, runtime,
 runtime_access, configuration, branch, canonical_branch, write_blockers, identity,
-vocabularies, linked_sources, capabilities, node}`. `configuration` holds
-`{path, format, requires, compatible}`; `identity` holds `{agent, session}`
-using the normal identity overrides. `vocabularies` holds `actors`,
+session_seen, vocabularies, linked_sources, capabilities, node}`.
+`session_seen` (added in 0.12.0) is the effective session's baseline
+`{version, requires, at}` (§11, *Session baseline*), or null. Context never
+records it, but adds the note when the current version or `requires`
+differs from it. `configuration` holds
+`{path, format, requires, compatible}`; `identity` holds `{agent, session,
+session_source}` using the normal identity overrides. `session_source` (added
+in 0.12.0) is `--session`, `PLIED_SESSION`, `CLAUDE_CODE_SESSION_ID` or null:
+the last is shared by a Claude Code session's subagents. `vocabularies` holds `actors`,
 `action_kinds` and `approve_authorities` (null when unavailable).
 `linked_sources` lists configured kind names, never selected record IDs,
 paths or hashes. `capabilities` holds the build's `pdf` boolean and lists of
@@ -1207,9 +1289,19 @@ change this verdict; `check` reports them separately.
   other action does not count, so a new action name starts without reviews.
 - An action is `kind` or `kind:instance`, with the kind before the first
   `:` (`run:fit-20261024` has kind `run`). When `checks.action_kinds` is
-  set, `review --action` and `dispose --action` refuse any other kind as a
-  usage error (exit 2). The kind is a vocabulary check only: the gate still
-  compares the whole name.
+  set, `review --gate` and `dispose` refuse any other kind as a usage error
+  (exit 2). The kind is a vocabulary check only: the gate still compares the
+  whole name.
+- The refusal says what to ask for, since adding a kind changes
+  `plied.toml`, which is a project decision. With `--json`, its
+  `error.detail` is `{action, kind, action_kinds, config: {path, key,
+  proposed}}`: `key` is `checks.action_kinds`, and `proposed` is the
+  configured list with the refused kind appended. Since 0.12.0, `review
+  --action` without `--gate` only reads, so it accepts any kind, adds a note
+  that the gate and `dispose` would refuse it, and lists the commitments that
+  would govern it once the kind is allowed. (Before 0.12.0, it refused too.)
+  A project that wants every step to be gateable MAY configure a catch-all
+  kind such as `other`; plied gives no kind a special meaning.
 - Every disposition except `blocks` passes, `acting` included. A passing gate
   means each applicable commitment was reviewed for this action. It does not
   mean the obligation was fulfilled, or that the evidence a review relied on
