@@ -76,6 +76,12 @@ enum Cmd {
         /// include current stale causes without recording a review
         #[arg(long)]
         freshness: bool,
+        /// also the records this one references, one hop: provenance, a bounded preview, and for threads and questions their commitments. Read the originals before acting
+        #[arg(long)]
+        refs: bool,
+        /// list the linked records it references from sources with `show_fields`, with those fields as the records state them
+        #[arg(long)]
+        linked: bool,
     },
     /// create a record
     New {
@@ -106,6 +112,9 @@ enum Cmd {
         expect: String,
         #[arg(long)]
         why: Option<String>,
+        /// a linked record you read and judged this node against, as ID@REV (REV from `plied show`, 8+ hex); repeat for each. The write then vouches only for those revisions, not for every newer record (FORMAT.md §3.5)
+        #[arg(long, value_name = "ID@REV")]
+        reviewed: Vec<String>,
         #[command(flatten)]
         who: WhoArgs,
     },
@@ -113,6 +122,31 @@ enum Cmd {
     Note {
         id: String,
         text: String,
+        /// the revision you read (from `plied show`)
+        #[arg(long, value_name = "REV")]
+        expect: String,
+        /// a linked record you read and judged this node against, as ID@REV (REV from `plied show`, 8+ hex); repeat for each. The write then vouches only for those revisions, not for every newer record (FORMAT.md §3.5)
+        #[arg(long, value_name = "ID@REV")]
+        reviewed: Vec<String>,
+        #[command(flatten)]
+        who: WhoArgs,
+    },
+    /// reopen a closed thread, keeping its outcome in prior_outcomes (FORMAT.md §3.3)
+    Reopen {
+        id: String,
+        /// what becomes of the outcome: conclusion (it no longer stands), rationale (its quoted support does not establish it), continued (it stands; the work goes on) or corrected (the same conclusion, to be restated)
+        #[arg(long)]
+        scope: String,
+        /// why, in words a later reader can check
+        #[arg(long)]
+        because: String,
+        /// the record that replaces the outcome, if one does
+        #[arg(long = "replaced-by", value_name = "REF")]
+        replaced_by: Option<String>,
+        /// the thread's status afterwards
+        #[arg(long, default_value = "open", value_parser = ["open", "waiting", "held", "parked"])]
+        status: String,
+        /// the revision you read (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
         #[command(flatten)]
@@ -123,6 +157,7 @@ enum Cmd {
         id: String,
         /// the new content (- for stdin)
         file: String,
+        /// the revision you read (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
         #[arg(long)]
@@ -151,6 +186,9 @@ enum Cmd {
         /// show existing stale causes beside the displayed records, without recording a review
         #[arg(long)]
         freshness: bool,
+        /// beside each record, list the linked records it references from sources with `show_fields`, with those fields as the records state them
+        #[arg(long)]
+        linked: bool,
     },
     /// regenerate the Markdown view
     View {
@@ -269,18 +307,24 @@ enum Cmd {
     },
     /// record a commitment's disposition for an action
     Dispose {
+        /// the commitment
         id: String,
+        /// the exact action this disposition is for, `kind` or `kind:instance` (the gate compares it exactly)
         #[arg(long)]
         action: String,
+        /// satisfied, acting, not-triggered, not-applicable or blocks (only blocks holds the gate)
         #[arg(long)]
         disposition: String,
+        /// what you checked, in words a later reader can verify
         #[arg(long)]
         because: String,
-        #[arg(long)]
+        /// a record or other reference backing the disposition (text, not checked)
+        #[arg(long = "ref")]
         ref_: Option<String>,
         /// exact evidence bytes you read; repeat for each input (never inferred from --ref)
         #[arg(long = "read", value_name = "ID@FULL_REV")]
         read: Vec<String>,
+        /// the commitment's revision, as you read it (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
         #[command(flatten)]
@@ -386,6 +430,21 @@ impl Ctx {
             return Ok(None);
         }
         Ok(Some(self.library()?))
+    }
+}
+
+/// Where the effective session came from, in `who_of`'s order: `--session`, `PLIED_SESSION` or
+/// `CLAUDE_CODE_SESSION_ID`. The last is shared by a Claude Code session's subagents.
+fn session_source(args: &WhoArgs) -> Option<&'static str> {
+    let set = |v: Option<String>| v.is_some_and(|s| !s.is_empty());
+    if set(args.session.clone()) {
+        Some("--session")
+    } else if set(std::env::var("PLIED_SESSION").ok()) {
+        Some("PLIED_SESSION")
+    } else if set(std::env::var("CLAUDE_CODE_SESSION_ID").ok()) {
+        Some("CLAUDE_CODE_SESSION_ID")
+    } else {
+        None
     }
 }
 
@@ -550,15 +609,43 @@ fn run(cli: &Cli) -> Res<i32> {
         Cmd::Guard { guard_cmd } => cmd_guard(cli, guard_cmd),
         _ => {
             let ctx = Ctx::new(cli)?;
+            if let Some(session) = session_of(cli) {
+                let requires = ctx.repo.cfg.requires.as_ref().map(ToString::to_string);
+                if let Some(change) = plied::session::observe(&ctx.repo.runtime, &session, requires.as_deref()) {
+                    plied::notes::note(change);
+                }
+            }
             dispatch(&ctx, cli)
         }
     }
 }
 
+/// The session a command runs in: its own `--session`, else the environment's (as `who_of`).
+fn session_of(cli: &Cli) -> Option<String> {
+    let args = match &cli.cmd {
+        Cmd::New { who, .. }
+        | Cmd::Set { who, .. }
+        | Cmd::Note { who, .. }
+        | Cmd::Reopen { who, .. }
+        | Cmd::Replace { who, .. }
+        | Cmd::Claim { who, .. }
+        | Cmd::Release { who, .. }
+        | Cmd::Send { who, .. }
+        | Cmd::Subscribe { who, .. }
+        | Cmd::Unsubscribe { who, .. }
+        | Cmd::Inbox { who, .. }
+        | Cmd::Ack { who, .. }
+        | Cmd::Dispose { who, .. }
+        | Cmd::Scanned { who, .. } => who.clone(),
+        _ => WhoArgs { as_: None, session: None },
+    };
+    who_of(&args, false).ok().and_then(|w| w.session)
+}
+
 fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
     let json = cli.json;
     match &cli.cmd {
-        Cmd::Show { id, summary, freshness } => cmd_show(ctx, id, *summary, *freshness, json),
+        Cmd::Show { id, summary, freshness, refs, linked } => cmd_show(ctx, id, *summary, *freshness, *refs, *linked, json),
         Cmd::New { kind, title, assign, set_file, body, why, who } => {
             let kind = OwnKind::parse(kind).unwrap();
             let who = who_of(who, true)?;
@@ -581,18 +668,20 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             }
             Ok(0)
         }
-        Cmd::Set { id, assign, set_file, expect, why, who } => {
+        Cmd::Set { id, assign, set_file, expect, why, reviewed, who } => {
             let who = who_of(who, true)?;
             let assigns = assignments_of(cli, assign, set_file)?;
+            let mut scoped = scoped_review(id, reviewed)?;
             let lib = ctx.library_opt()?;
-            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, why.as_deref(), &assigns, None, None, None)?;
+            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, why.as_deref(), &assigns, None, None, scoped.as_deref_mut())?;
             print_updated(id, &rev, json, "updated");
             Ok(0)
         }
-        Cmd::Note { id, text, expect, who } => {
+        Cmd::Note { id, text, expect, reviewed, who } => {
             let who = who_of(who, true)?;
+            let mut scoped = scoped_review(id, reviewed)?;
             let lib = ctx.library_opt()?;
-            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, None, &[], Some(text), None, None)?;
+            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, None, &[], Some(text), None, scoped.as_deref_mut())?;
             print_updated(id, &rev, json, "noted");
             Ok(0)
         }
@@ -634,7 +723,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             }
             Ok(0)
         }
-        Cmd::Frontier { actor, freshness } => cmd_frontier(ctx, actor.as_deref(), *freshness, json),
+        Cmd::Frontier { actor, freshness, linked } => cmd_frontier(ctx, actor.as_deref(), *freshness, *linked, json),
         Cmd::View { check, print } => cmd_view(ctx, *check, *print, json),
         Cmd::Check { errors_only, baseline, group_stale } => cmd_check(ctx, *errors_only, baseline.as_deref(), *group_stale, json),
         Cmd::Recover => cmd_recover(ctx, json),
@@ -652,14 +741,24 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             let st = ctx.store()?;
             let r = st.get(node).ok_or_else(|| Fail::new(format!("no record {node}")))?;
             let c = ctx.messages().claim(node, &who.agent, who.session.as_deref(), *ttl)?;
-            // whoever takes up a node sees what it obliges before acting on it (§12)
+            // whoever takes up a node sees what it obliges before acting on it (§12), and who else is on it:
+            // a claim is presence, not exclusive
             let apps = node_commitments(&st, r);
+            let others: Vec<_> =
+                ctx.messages().claims(false).into_iter().filter(|o| o.node == *node && (o.agent != c.agent || o.session != c.session)).collect();
             if json {
                 let mut o = c.to_json();
                 o.as_object_mut().unwrap().insert("commitments".into(), commitments_json(&apps));
+                o.as_object_mut().unwrap().insert("others".into(), Value::Array(others.iter().map(|o| o.to_json()).collect()));
                 out_json(&o);
             } else {
                 outln!("{} is on {node} until {} UTC (renewed by the hook, or claim again)", who.agent, c.expires().format("%Y-%m-%d %H:%M"));
+                if !others.is_empty() {
+                    outln!("Also on {node} (claims are presence, not exclusive; read `plied messages {node}` before overlapping):");
+                    for o in &others {
+                        outln!("  {}", lease_text(o));
+                    }
+                }
                 if !apps.is_empty() {
                     outln!("Commitments that apply (review before acting: `plied review {node}`):");
                     outln!("{}", commitment_lines(&apps).join("\n"));
@@ -694,8 +793,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
                 ));
             } else {
                 for c in &cs {
-                    let s = c.session.as_ref().map(|s| format!(" session {}", doc::take(s, 8))).unwrap_or_default();
-                    outln!("{:6} {}{s}, since {}, lease until {} UTC", c.node, c.agent, c.since, c.expires().format("%H:%M"));
+                    outln!("{:6} {}", c.node, lease_text(c));
                 }
                 if cs.is_empty() {
                     outln!("nobody has a live claim");
@@ -760,8 +858,53 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             cmd_dispose(ctx, id, action, disposition, because, ref_.as_deref(), read, expect, who, json)
         }
         Cmd::Scanned { id, rev, on, because, expect, who } => cmd_scanned(ctx, id, rev, on, because, expect, who, json),
+        Cmd::Reopen { id, scope, because, replaced_by, status, expect, who } => {
+            cmd_reopen(ctx, id, scope, because, replaced_by.as_deref(), status, expect, who, json)
+        }
         _ => unreachable!(),
     }
+}
+
+/// A live claim for people: who, which session (its first 8 characters, as in history), and until when.
+fn lease_text(c: &plied::messages::Claim) -> String {
+    let s = c.session.as_ref().map(|s| format!(" (session {})", doc::take(s, 8))).unwrap_or_default();
+    format!("{}{s}, since {}, lease until {} UTC", c.agent, c.since, c.expires().format("%Y-%m-%d %H:%M"))
+}
+
+/// For `--reviewed ID@REV…`: the write's scoped review (§3.5), checked against the store loaded under
+/// the write lock, so it names only revisions that are current when it is written. None without any.
+fn scoped_review<'a>(node: &'a str, reviewed: &[String]) -> Res<Option<Box<plied::writer::Mutate<'a>>>> {
+    let mut items: Vec<(String, String)> = vec![];
+    for value in reviewed {
+        let Some((id, rev)) = value.rsplit_once('@').map(|(i, r)| (i.to_string(), r.to_ascii_lowercase())).filter(|(i, r)| !i.is_empty() && plied::records::is_rev(r)) else {
+            return Err(Fail::code(EXIT_USAGE, "--reviewed needs ID@REV: a linked record's id and the revision you read (at least 8 hex characters; `plied show` prints it)"));
+        };
+        if !items.iter().any(|(i, _)| *i == id) {
+            items.push((id, rev));
+        }
+    }
+    if items.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Box::new(move |store: &Store, _meta: &mut Map| -> Res<String> {
+        let causes: Vec<String> = store.get(node).map(|n| check::freshness(store, n).into_iter().map(|c| c.record).collect()).unwrap_or_default();
+        let mut named = vec![];
+        for (id, rev) in &items {
+            let r = store.get(id).ok_or_else(|| Fail::new(format!("{id} is unavailable (missing or possibly sealed)")))?;
+            if r.is_own() {
+                return Err(Fail::new(format!("{id} is a plied record; --reviewed names the linked records that make a node stale")));
+            }
+            if !r.rev.starts_with(rev.as_str()) {
+                return Err(Fail::code(plied::error::EXIT_CONFLICT, format!("{id} changed since you read it; read it again"))
+                    .with_detail(json!({"id": id, "expected": rev, "current": r.rev})));
+            }
+            if !causes.contains(id) {
+                plied::notes::note(format!("{id} does not make {node} stale; the review is recorded anyway"));
+            }
+            named.push(format!("{id}@{}", &r.rev[..12]));
+        }
+        Ok(format!("reviewed {}", named.join(", ")))
+    })))
 }
 
 fn print_updated(id: &str, rev: &str, json: bool, verb: &str) {
@@ -810,7 +953,8 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
     let configuration = repo::configuration_path(cli.c.as_deref(), cli.config.as_deref())?;
     let capabilities = json!({"pdf": cfg!(feature = "pdf"), "record_kinds": ["thread", "commitment", "question"],
         "discovery": ["context", "schema"], "guidance": ["--help", "skill"]});
-    let identity = json!({"agent": if who.agent.is_empty() { None } else { Some(&who.agent) }, "session": who.session});
+    let identity = json!({"agent": if who.agent.is_empty() { None } else { Some(&who.agent) }, "session": who.session,
+        "session_source": session_source(args)});
     let Some(repo) = discovery_repo(cli)? else {
         let canonical = configuration.parent().unwrap_or_else(|| Path::new("."));
         return print_discovery(json!({"version": plied::VERSION, "configured": false, "canonical": canonical,
@@ -818,10 +962,16 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
             "here": fsx::resolve(cli.c.as_deref().unwrap_or_else(|| Path::new("."))),
             "runtime": null, "runtime_access": null, "branch": null, "canonical_branch": null,
             "write_blockers": ["no plied.toml; initialize the selected canonical checkout with plied init"],
-            "identity": identity, "vocabularies": plied::schema::vocabularies(None), "linked_sources": [],
+            "identity": identity, "session_seen": null, "vocabularies": plied::schema::vocabularies(None), "linked_sources": [],
             "capabilities": capabilities, "next": "plied init", "node": null}), cli.json);
     };
     let cfg = &repo.cfg;
+    // read only: context never records the baseline, but says when it no longer holds
+    let session_seen = who.session.as_deref().and_then(|s| plied::session::seen(&repo.runtime, s));
+    let requires = cfg.requires.as_ref().map(ToString::to_string);
+    if let Some(change) = session_seen.as_ref().and_then(|b| plied::session::change(b, requires.as_deref())) {
+        plied::notes::note(change);
+    }
     let mut blockers = repo.write_blockers();
     blockers.extend(cfg.compat_problems().into_iter().map(|(_, message)| message));
     let mut value = json!({"version": plied::VERSION, "configured": true, "canonical": repo.canonical,
@@ -829,7 +979,7 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
         "runtime_access": {"writability": "unverified", "reason": "Filesystem writability has not been checked. Claims, messages, releases, record writes and caches need runtime writes. A filesystem error may require permission or a writable runtime selected with PLIED_RUNTIME; writable storage grants no record-edit authority."},
         "configuration": {"path": cfg.path, "format": cfg.format, "requires": cfg.requires.as_ref().map(ToString::to_string), "compatible": cfg.compat_problems().is_empty()},
         "branch": repo.branch(), "canonical_branch": cfg.canonical_branch, "write_blockers": blockers,
-        "identity": identity, "vocabularies": plied::schema::vocabularies(Some(cfg)),
+        "identity": identity, "session_seen": session_seen, "vocabularies": plied::schema::vocabularies(Some(cfg)),
         "linked_sources": cfg.sources.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), "capabilities": capabilities, "node": null});
     if let Some(id) = node {
         let policy = Rc::new(Policy::new(cfg)?);
@@ -958,7 +1108,7 @@ fn backlinks(st: &Store, rid: &str) -> Vec<(String, Vec<String>)> {
     out
 }
 
-fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, json: bool) -> Res<i32> {
+fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, refs: bool, linked: bool, json: bool) -> Res<i32> {
     let st = ctx.store()?;
     let r = st.get(id).ok_or_else(|| Fail::new(format!("no record {id}")))?;
     let data = std::fs::read(&r.path).unwrap_or_default();
@@ -977,6 +1127,12 @@ fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, json: bool) -> 
         if freshness {
             o.insert("freshness".into(), json!(check::freshness(&st, r)));
         }
+        if refs {
+            o.insert("refs".into(), refs_json(ctx, &st, r));
+        }
+        if linked {
+            o.insert("linked".into(), json!(views::linked_work(&st, r)));
+        }
         out_json(&Value::Object(o));
         return Ok(0);
     }
@@ -988,7 +1144,99 @@ fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, json: bool) -> 
             outln!("  {} (rev {}, {}) — mentions {}", cause.record, doc::take(&cause.rev, 12), cause.subject, cause.mentions.join(", "));
         }
     }
+    if refs {
+        outln!("{}", refs_text(&refs_json(ctx, &st, r)));
+    }
+    if linked {
+        let items = views::linked_work(&st, r);
+        outln!("Linked work: {} record(s), fields as each states them (? = not stated; their claims are not plied claims).", items.len());
+        for item in &items {
+            outln!("  {}", views::linked_work_line(item));
+        }
+    }
     Ok(0)
+}
+
+/// The records `r` references, one hop (FORMAT.md §11.1, `show --refs`): what each is and where it came
+/// from, a bounded preview, a commitment's wording, and the commitments that apply to a referenced
+/// thread or question. A reference that names nothing readable is listed by the id and fields the
+/// readable record already shows, never by anything about what it may hide.
+fn refs_json(ctx: &Ctx, st: &Store, r: &Record) -> Value {
+    let mut order: Vec<String> = vec![];
+    let mut via: std::collections::HashMap<String, Vec<&'static str>> = Default::default();
+    for (field, id) in r.refs() {
+        let fields = via.entry(id.clone()).or_default();
+        if fields.is_empty() {
+            order.push(id);
+        }
+        if !fields.contains(&field) {
+            fields.push(field);
+        }
+    }
+    let (mut records, mut unavailable) = (vec![], vec![]);
+    for id in &order {
+        let Some(x) = st.get(id).filter(|x| x.id != r.id) else {
+            if st.get(id).is_none() {
+                unavailable.push(json!({"id": id, "via": via[id]}));
+            }
+            continue;
+        };
+        let mut o = json!({"id": x.id, "kind": x.kind.name(), "title": x.title(), "state": x.state_str(),
+            "path": fsx::rel(&ctx.repo.cfg.base, &x.path), "rev": x.rev, "via": via[id], "preview": body_preview(x)});
+        if x.is(OwnKind::Commitment) {
+            o["wording"] = json!(doc::text(&x.meta, "wording"));
+        }
+        if takes_commitments(x) {
+            o["commitments"] = commitments_json(&node_commitments(st, x));
+        }
+        records.push(o);
+    }
+    json!({"records": records, "unavailable": unavailable})
+}
+
+fn refs_text(refs: &Value) -> String {
+    let records = refs["records"].as_array().cloned().unwrap_or_default();
+    let unavailable = refs["unavailable"].as_array().cloned().unwrap_or_default();
+    let fields = |v: &Value| v["via"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", ");
+    let mut l = vec![String::new(), format!(
+        "References, one hop: {} readable, {} unavailable. Previews are shortened; read each original before acting on it.",
+        records.len(), unavailable.len())];
+    for x in &records {
+        let s = |k: &str| x[k].as_str().unwrap_or_default().to_string();
+        l.push(String::new());
+        l.push(format!("{} ({}, via {})  {}", s("id"), s("kind"), fields(x), s("title")));
+        l.push(format!("  state: {}   rev: {}   file: {}", x["state"].as_str().unwrap_or("(unset)"), doc::take(&s("rev"), 12), s("path")));
+        if let Some(w) = x["wording"].as_str() {
+            l.push(format!("  wording: “{w}”"));
+        }
+        if let Some(p) = x["preview"]["text"].as_str() {
+            l.push(format!("  {}: {p}", if x["preview"]["from"] == "summary" { "summary (author-written)" } else { "body preview" }));
+        }
+        for c in x["commitments"].as_array().into_iter().flatten() {
+            let chains = c["chains"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join("; ");
+            l.push(format!("  commitment {} [{}] {} — applies via {chains}", c["id"].as_str().unwrap_or_default(), c["state"].as_str().unwrap_or("(unset)"), c["title"].as_str().unwrap_or_default()));
+        }
+    }
+    for u in &unavailable {
+        l.push(format!("\n{} (via {}): unavailable — missing, or possibly sealed", u["id"].as_str().unwrap_or_default(), fields(u)));
+    }
+    l.join("\n")
+}
+
+/// A bounded preview of a record's body: its author-written Summary (§3.7) when it has one,
+/// else its first paragraph before History, collapsed and cut to 400 characters. None when empty.
+fn body_preview(r: &Record) -> Value {
+    fn excerpt(text: &str, limit: usize) -> String {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let head = doc::take(&flat, limit);
+        if head.len() < flat.len() { format!("{head}…") } else { flat }
+    }
+    if let Some(summary) = r.body_summary() {
+        return json!({"from": "summary", "text": excerpt(&summary, 400)});
+    }
+    let body = if r.body.trim_start().starts_with("## History\n") { "" } else { r.body.split("\n## History").next().unwrap_or(&r.body) };
+    let first = body.split("\n\n").find(|p| !p.trim().is_empty()).unwrap_or("");
+    if first.trim().is_empty() { Value::Null } else { json!({"from": "body", "text": excerpt(first, 400)}) }
 }
 
 /// Orientation only: every free-text section has a character or item bound.
@@ -1078,7 +1326,8 @@ fn record_text(ctx: &Ctx, st: &Store, r: &Record) -> Res<String> {
         }
         let claims: Vec<_> = ctx.messages().claims(false).into_iter().filter(|c| c.node == r.id).collect();
         if !claims.is_empty() {
-            l.push(format!("On it now (leases): {}", claims.iter().map(|c| format!("{} until {} UTC", c.agent, c.expires().format("%H:%M"))).collect::<Vec<_>>().join(", ")));
+            l.push("On it now (leases):".into());
+            l.extend(claims.iter().map(|c| format!("  {}", lease_text(c))));
         }
     }
     Ok(l.join("\n"))
@@ -1178,7 +1427,7 @@ fn cmd_find(ctx: &Ctx, q_text: &str, json: bool) -> Res<i32> {
     Ok(0)
 }
 
-fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> Res<i32> {
+fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, linked: bool, json: bool) -> Res<i32> {
     let st = ctx.store()?;
     let mut fr = views::frontier(&st);
     if let Some(a) = actor {
@@ -1188,13 +1437,30 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> 
     let unscheduled: Vec<_> = views::unscheduled(&st).into_iter().filter(|r| actor.is_none_or(|a| doc::text(&r.meta, "actor").as_deref() == Some(a))).collect();
     let qs: Vec<_> = st.own(Some(OwnKind::Question)).into_iter().filter(|q| q.state_str() == Some("open")).collect();
     let dates = views::dates(&st, chrono::Utc::now().date_naive());
-    let with_freshness = |r: &Record, mut value: Value| {
+    // plied's own claims, so whoever picks a task sees who is on it; kept apart from anything a linked
+    // record says about its own assignment
+    let claims = ctx.messages().claims(false);
+    let claims_of = |r: &Record| -> Vec<&plied::messages::Claim> { claims.iter().filter(|c| c.node == r.id).collect() };
+    let with_extras = |r: &Record, mut value: Value| {
+        value["claims"] = Value::Array(claims_of(r).iter().map(|c| c.to_json()).collect());
         if freshness {
             value["freshness"] = json!(check::freshness(&st, r));
         }
+        if linked {
+            value["linked"] = json!(views::linked_work(&st, r));
+        }
         value
     };
-    let print_freshness = |r: &Record| {
+    let print_extras = |r: &Record| {
+        let on: Vec<String> = claims_of(r).iter().map(|c| format!("{} until {} UTC", c.agent, c.expires().format("%Y-%m-%d %H:%M"))).collect();
+        if !on.is_empty() {
+            outln!("    On it (plied claims): {}", on.join(", "));
+        }
+        if linked {
+            for item in views::linked_work(&st, r) {
+                outln!("    Linked {}", views::linked_work_line(&item));
+            }
+        }
         if freshness {
             for cause in check::freshness(&st, r) {
                 let how = if cause.subject == "named" { "names this node".to_string() } else { format!("cites {}", cause.via.iter().map(|v| format!("{} {}", v.field, v.id)).collect::<Vec<_>>().join(", ")) };
@@ -1207,17 +1473,20 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> 
         for (k, v) in &fr {
             obj.insert(
                 k.clone(),
-                Value::Array(v.iter().map(|r| with_freshness(r, json!({"id": r.id, "next": r.meta.get("next").map(Node::to_json), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()}))).collect()),
+                Value::Array(v.iter().map(|r| with_extras(r, json!({"id": r.id, "next": r.meta.get("next").map(Node::to_json), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()}))).collect()),
             );
         }
-        let unsched: Vec<Value> = unscheduled.iter().map(|r| with_freshness(r, json!({"id": r.id, "actor": doc::text(&r.meta, "actor"), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()}))).collect();
+        let unsched: Vec<Value> = unscheduled.iter().map(|r| with_extras(r, json!({"id": r.id, "actor": doc::text(&r.meta, "actor"), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()}))).collect();
         // with --actor the text output shows only that actor's work (below); open questions and
         // dates are no one actor's, so under --json they are empty too, not everyone's
-        let open: Vec<Value> = if actor.is_some() { vec![] } else { qs.iter().map(|q| with_freshness(q, json!({"id": q.id, "title": q.title(), "rev": q.rev}))).collect() };
+        let open: Vec<Value> = if actor.is_some() { vec![] } else { qs.iter().map(|q| with_extras(q, json!({"id": q.id, "title": q.title(), "rev": q.rev}))).collect() };
         let dates: Vec<Value> =
-            if actor.is_some() { vec![] } else { dates.iter().map(|(r, f, d, passed)| with_freshness(r, json!({"id": r.id, "field": f, "date": d.to_string(), "passed": passed}))).collect() };
+            if actor.is_some() { vec![] } else { dates.iter().map(|(r, f, d, passed)| with_extras(r, json!({"id": r.id, "field": f, "date": d.to_string(), "passed": passed}))).collect() };
         out_json(&json!({"queues": obj, "unscheduled": unsched, "open_questions": open, "dates": dates}));
         return Ok(0);
+    }
+    if linked {
+        outln!("(Linked fields are as each record states them; ? = not stated. A linked record's own claim or owner fields are not plied claims.)");
     }
     for (actor_name, rs) in &fr {
         outln!("{actor_name}:");
@@ -1227,7 +1496,7 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> 
             if let Some(summary) = views::summary_preview(r) {
                 outln!("     Summary (author-written preview): {summary}");
             }
-            print_freshness(r);
+            print_extras(r);
         }
     }
     if !unscheduled.is_empty() {
@@ -1238,21 +1507,21 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> 
             if let Some(summary) = views::summary_preview(r) {
                 outln!("    Summary (author-written preview): {summary}");
             }
-            print_freshness(r);
+            print_extras(r);
         }
     }
     if !qs.is_empty() && actor.is_none() {
         outln!("open questions:");
         for q in qs {
             outln!("  {} {}", q.id, q.title());
-            print_freshness(q);
+            print_extras(q);
         }
     }
     if !dates.is_empty() && actor.is_none() {
         outln!("dates:");
         for (r, f, d, passed) in &dates {
             outln!("  {d} {} {f}{}  {}", r.id, if *passed { " (now)" } else { "" }, r.title());
-            print_freshness(r);
+            print_extras(r);
         }
     }
     Ok(0)
@@ -1681,8 +1950,16 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
     if gate && action.is_none() {
         return Err(Fail::code(EXIT_USAGE, "--gate needs --action: a disposition counts only for the action it was recorded for"));
     }
-    if let Some(msg) = action.and_then(|a| ctx.repo.cfg.action_problem(a)) {
-        return Err(Fail::code(EXIT_USAGE, msg));
+    // without --gate, review only reads: an action of an unconfigured kind still shows what would
+    // govern it, which is what the caller needs in order to ask for the kind
+    if let Some(a) = action
+        && let Some(refusal) = ctx.repo.cfg.action_refusal(a)
+    {
+        if gate {
+            return Err(refusal);
+        }
+        let problem = ctx.repo.cfg.action_problem(a).unwrap_or_default();
+        plied::notes::note(format!("{problem}; --gate and dispose refuse this action until plied.toml allows its kind"));
     }
     let st = ctx.store()?;
     for n in nodes {
@@ -1738,7 +2015,8 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
                 );
             }
             for claim in review::input_reviews(&st, c, action) {
-                outln!("  evidence for {} (review {}): {}", claim.action, claim.review_index, claim.status);
+                let gloss = if claim.status == "unbound" { " (no --read pins; the gate does not use pins)" } else { "" };
+                outln!("  evidence for {} (review {}): {}{gloss}", claim.action, claim.review_index, claim.status);
                 for input in claim.inputs {
                     outln!("    {}@{}: {}", input.record, doc::take(&input.rev, 12), input.status);
                 }
@@ -1763,6 +2041,11 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
             for r in &reasons {
                 errln!("gate: {r}");
             }
+            // a pass is a verdict too: say it, rather than leave it to the exit code
+            if reasons.is_empty() {
+                let n = items.iter().filter(|x| x.governs_action).count();
+                errln!("gate: passed for {}: {n} applicable commitment(s) govern it, each with a non-blocking disposition for it", action.unwrap_or_default());
+            }
         }
         return Ok(if reasons.is_empty() { 0 } else { EXIT_GATE });
     }
@@ -1775,8 +2058,8 @@ fn cmd_dispose(ctx: &Ctx, id: &str, action: &str, disposition: &str, because: &s
     if Disposition::parse(disposition).is_none() {
         return Err(Fail::code(EXIT_USAGE, format!("--disposition must be one of {}", Disposition::ALL.join(", "))));
     }
-    if let Some(msg) = ctx.repo.cfg.action_problem(action) {
-        return Err(Fail::code(EXIT_USAGE, msg));
+    if let Some(refusal) = ctx.repo.cfg.action_refusal(action) {
+        return Err(refusal);
     }
     let who = who_of(who_args, true)?;
     let who_s = who.to_string();
@@ -1826,6 +2109,57 @@ fn cmd_dispose(ctx: &Ctx, id: &str, action: &str, disposition: &str, because: &s
     } else {
         outln!("{id}: disposition recorded (rev {})", &rev[..12.min(rev.len())]);
     }
+    Ok(0)
+}
+
+/// Move a closed thread's outcome, its evidence revision and what it carried into `prior_outcomes`,
+/// and reopen it, in one write: the conclusion stays in the record that reached it (§3.3).
+#[allow(clippy::too_many_arguments)]
+fn cmd_reopen(ctx: &Ctx, id: &str, scope: &str, because: &str, replaced_by: Option<&str>, status: &str, expect: &str, who_args: &WhoArgs, json: bool) -> Res<i32> {
+    if !plied::records::PRIOR_SCOPES.contains(&scope) {
+        return Err(Fail::code(EXIT_USAGE, format!("--scope must be one of {}", plied::records::PRIOR_SCOPES.join(", "))));
+    }
+    if because.trim().is_empty() {
+        return Err(Fail::code(EXIT_USAGE, "--because needs the reason, in words a later reader can check"));
+    }
+    let who = who_of(who_args, true)?;
+    let who_s = who.to_string();
+    let mut mutate = |store: &Store, meta: &mut Map| -> Res<String> {
+        let r = store.get(id).filter(|r| r.is(OwnKind::Thread)).ok_or_else(|| Fail::new(format!("{id} is not a thread")))?;
+        let Some(Node::Map(outcome)) = meta.get("outcome").cloned().filter(|_| r.status() == Some(plied::records::ThreadStatus::Closed)) else {
+            return Err(Fail::new(format!("{id} is not closed with an outcome; there is nothing to reopen")));
+        };
+        let mut item = Map::new();
+        for key in ["quote", "ref", "labels"] {
+            if let Some(v) = outcome.get(key) {
+                item.insert(key.into(), v.clone());
+            }
+        }
+        // Snapshot the source available now, not an inferred revision from when the thread closed.
+        if let Some(source) = doc::text(&outcome, "ref").map(|f| plied::records::ref_id(&f)).and_then(|f| store.get(&f)) {
+            item.insert("rev".into(), Node::Str(source.rev.clone()));
+        }
+        if let Some(carries) = meta.shift_remove("carries") {
+            item.insert("carries".into(), carries);
+        }
+        item.insert("scope".into(), Node::Str(scope.into()));
+        item.insert("because".into(), Node::Str(because.into()));
+        item.insert("by".into(), Node::Str(who_s.clone()));
+        item.insert("at".into(), Node::Str(plied::records::stamp()));
+        if let Some(b) = replaced_by {
+            item.insert("replaced_by".into(), Node::Str(b.into()));
+        }
+        let mut prior: Vec<Node> = meta.get("prior_outcomes").map(|v| v.items().to_vec()).unwrap_or_default();
+        prior.push(Node::Map(item));
+        let index = prior.len() - 1;
+        meta.insert("prior_outcomes".into(), Node::List(prior));
+        meta.shift_remove("outcome");
+        meta.insert("status".into(), Node::Str(status.into()));
+        Ok(format!("reopened ({scope}); set status={status}; outcome kept as prior_outcomes[{index}]"))
+    };
+    let lib = ctx.library_opt()?;
+    let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, Some(because), &[], None, None, Some(&mut mutate))?;
+    print_updated(id, &rev, json, "reopened");
     Ok(0)
 }
 

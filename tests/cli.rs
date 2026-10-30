@@ -103,6 +103,22 @@ fn claim_and_show_list_the_commitments_that_apply() {
 }
 
 #[test]
+fn claim_says_who_else_is_on_the_node() {
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "Shared work"]);
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["claim", "T001", "--json"])).unwrap();
+    assert_eq!(v["result"]["others"], serde_json::json!([]), "nobody else yet");
+    let out = p.run_as("bob", &["claim", "T001"]);
+    let said = text(&out);
+    assert!(said.contains("Also on T001") && said.contains("alice (session sess1234)"), "{said}");
+    assert!(said.contains(&format!("lease until {}", chrono::Utc::now().format("%Y-%m-%d"))), "a lease shows its date:\n{said}");
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["claim", "T001", "--json"])).unwrap();
+    let others = v["result"]["others"].as_array().unwrap();
+    assert_eq!(others.len(), 1, "renewing your own claim does not list you: {v}");
+    assert_eq!((others[0]["agent"].as_str(), others[0]["node"].as_str()), (Some("bob"), Some("T001")));
+}
+
+#[test]
 fn next_write_undoes_an_interrupted_one() {
     let p = Proj::new();
     p.ok(&["new", "thread", "--title", "First"]);
@@ -414,4 +430,49 @@ fn a_closed_stdout_ends_the_output_not_the_command() {
     let out = with_stdout_closed(&p, &["new", "thread", "--title", "Second"]);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
     assert!(p.ok(&["list"]).contains("T002"));
+}
+
+#[test]
+fn a_session_hears_once_when_plied_or_requires_changed_under_it() {
+    let p = Proj::new();
+    assert!(!text(&p.run(&["list"])).contains("plied skill"), "the first command records the baseline quietly");
+    let cfg = p.path().join("plied.toml");
+    let t = std::fs::read_to_string(&cfg).unwrap();
+    let line = t.lines().find(|l| l.starts_with("requires")).unwrap().to_string();
+    std::fs::write(&cfg, t.replace(&line, "requires = \">=0.1.0\"")).unwrap();
+
+    // context reads the baseline and says it no longer holds, without consuming the change
+    let v: serde_json::Value = serde_json::from_slice(&p.run(&["context", "--json"]).stdout).unwrap();
+    assert!(v["result"]["session_seen"]["version"].is_string(), "{v}");
+    assert_ne!(v["result"]["session_seen"]["requires"], ">=0.1.0");
+    assert!(v["notes"][0].as_str().unwrap().contains("requires changed"), "{v}");
+
+    let out = text(&p.run(&["list"]));
+    assert!(out.contains("requires changed") && out.contains("to \">=0.1.0\"") && out.contains("plied skill"), "{out}");
+    assert!(!text(&p.run(&["list"])).contains("plied skill"), "said once");
+    let v: serde_json::Value = serde_json::from_slice(&p.run(&["context", "--json"]).stdout).unwrap();
+    assert_eq!(v["result"]["session_seen"]["requires"], ">=0.1.0");
+    assert_eq!(v["notes"], serde_json::json!([]));
+
+    // the agent hook says it too, as context for the agent
+    let seen = p.path().join(".git/plied/seen/sess12345678.json");
+    std::fs::write(&seen, r#"{"version": "0.0.1", "requires": ">=0.1.0"}"#).unwrap();
+    let hook = |event: &str| {
+        use std::io::Write;
+        let mut child = std::process::Command::new(bin())
+            .args(["hook", "claude"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let input = serde_json::json!({"session_id": "sess12345678", "hook_event_name": event, "cwd": p.path()});
+        child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
+        String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
+    };
+    assert_eq!(hook("PreToolUse"), "", "an event that cannot carry context leaves the change for one that can");
+    let out = hook("UserPromptSubmit");
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let said = v["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
+    assert!(said.contains("started with 0.0.1") && said.contains("plied skill"), "{said}");
+    assert_eq!(hook("UserPromptSubmit"), "");
 }

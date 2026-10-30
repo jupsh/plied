@@ -70,6 +70,30 @@ def main():
 
         code, err = reconcile(clean, ["M001", "M001"])
         assert code == 2 and "more than once" in err, (code, err)
+
+        corrections = Path(tmp) / "corrections"
+        store(corrections, {
+            "F001": {"item": "M001", "entry": "forecast"},
+            "F002": {"item": "M001", "entry": "maybe", "corrects": "F001"},
+            "F003": {"item": "M002", "entry": "forecast", "corrects": "F003"},
+            "F004": {"item": "M003", "entry": "forecast", "corrects": "F005"},
+            "F005": {"item": "M003", "entry": "abstain", "corrects": "F004"},
+            "F006": {"item": "M004", "entry": "forecast", "corrects": "[F001]"},
+        })
+        code, report = reconcile(corrections, ["M001", "M002", "M003", "M004"])
+        assert code == 1, (code, report)
+        assert [(c["item"], c["record"]) for c in report["covered"]] == [("M001", "F001")], report
+        assert report["corrected"] == [], "malformed corrections never suppress a valid entry"
+        assert {m["record"] for m in report["malformed"]} == {"F002", "F003", "F004", "F005", "F006"}, report
+
+        for items in ([None], [1], [{"id": "M001"}], [""]):
+            code, err = reconcile(clean, items)
+            assert code == 2 and "Traceback" not in err, (code, err)
+        reconcile(clean, ["M001", "M002"])
+        unknown = subprocess.run([sys.executable, str(HERE / "reconcile.py"), "--plied", ARGS.plied,
+                                  "--store", str(clean), "--eligible", str(clean / "eligible.json"),
+                                  "--source", "unknown"], capture_output=True, text=True)
+        assert unknown.returncode == 2 and "not a configured linked source" in unknown.stderr, unknown.stderr
     print("reconcile: all checks passed")
 
 

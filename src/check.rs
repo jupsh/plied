@@ -136,6 +136,7 @@ pub fn run(store: &Store, inputs: &Inputs) -> Vec<Problem> {
     if inputs.warnings {
         dates(store, &mut p);
         stale(store, &mut p);
+        withdrawals(store, &mut p);
         supersessions(store, &mut p);
         unrecorded_commitments(store, &mut p);
         unlinked(store, &mut p);
@@ -304,6 +305,7 @@ fn authority(store: &Store, by: &Node, node: &str, at: &str, p: &mut Report, wha
 }
 
 fn thread(store: &Store, r: &Record, at: &str, p: &mut Report) {
+    prior_outcomes(store, r, at, p);
     // an invalid status skips only the checks that depend on it
     let m = &r.meta;
     let status = r.status();
@@ -345,7 +347,10 @@ fn thread(store: &Store, r: &Record, at: &str, p: &mut Report) {
     let outcome = m.get("outcome");
     if is(ThreadStatus::Closed) {
         match outcome {
-            Some(Node::Map(o)) => quote(store, at, p, o.get("quote"), o.get("ref"), "outcome"),
+            Some(Node::Map(o)) => {
+                quote(store, at, p, o.get("quote"), o.get("ref"), "outcome");
+                outcome_labels(store, at, p, o.get("labels"));
+            }
             _ => p.err("required", at, "outcome", "a closed node needs outcome (quote and ref)"),
         }
     } else if let Some(st) = status.filter(|_| outcome.is_some_and(|o| !o.is_empty())) {
@@ -627,6 +632,104 @@ fn dates(store: &Store, p: &mut Report) {
     }
 }
 
+/// `prior_outcomes` items (§3.3). Their `ref` is a snapshot, so it is not required to exist now; a
+/// `replaced_by` names what replaces the outcome, so it is.
+fn prior_outcomes(store: &Store, r: &Record, at: &str, p: &mut Report) {
+    for (i, item) in r.meta.get("prior_outcomes").map(Node::items).unwrap_or_default().iter().enumerate() {
+        let Some(m) = item.map() else { continue };
+        if let Some(labels) = doc::set(m, "labels") {
+            let subject = format!("prior_outcomes[{i}].labels");
+            match labels {
+                Node::Map(facets) => {
+                    for (facet, label) in facets {
+                        if label.str().is_none() {
+                            let field = format!("{subject}.{facet}");
+                            p.err("field", at, &field, format!("{field} must be one label (text)"));
+                        }
+                    }
+                }
+                _ => p.err("field", at, &subject, format!("{subject} must be a mapping of facet to label")),
+            }
+        }
+        for f in ["quote", "ref", "scope", "because"] {
+            if doc::set(m, f).is_none() {
+                p.err("required", at, &format!("prior_outcomes[{i}].{f}"), format!("prior_outcomes[{i}] needs {f}"));
+            }
+        }
+        if let Some(rev) = doc::set(m, "rev")
+            && !rev.str().is_some_and(crate::review::full_revision)
+        {
+            p.err("field", at, &format!("prior_outcomes[{i}].rev"), format!("prior_outcomes[{i}].rev must be a full 64-character lowercase SHA-256"));
+        }
+        if let Some(by) = doc::set(m, "replaced_by").map(crate::records::node_ref).filter(|b| !b.is_empty())
+            && store.get(&by).is_none()
+        {
+            p.err("ref", at, &format!("prior_outcomes[{i}].replaced_by:{by}"), missing(store, "replaced_by", &by));
+        }
+    }
+}
+
+/// When a thread's conclusion or its rationale was withdrawn (§3.3, `prior_outcomes`), a record that
+/// references the thread and has not been updated since may rest on it. Reportable, never inferred:
+/// whether it does is for whoever reads the record (§8, `withdrawn`).
+fn withdrawals(store: &Store, p: &mut Report) {
+    let mut withdrawn: HashMap<&str, (chrono::NaiveDateTime, String, String)> = HashMap::new();
+    for t in store.own(Some(OwnKind::Thread)) {
+        for item in t.meta.get("prior_outcomes").map(Node::items).unwrap_or_default().iter().filter_map(Node::map) {
+            let scope = doc::text(item, "scope").unwrap_or_default();
+            let Some(when) = doc::text(item, "at").and_then(|a| chrono::NaiveDateTime::parse_from_str(a.trim(), "%Y-%m-%d %H:%M UTC").ok()) else { continue };
+            if matches!(scope.as_str(), "conclusion" | "rationale") && withdrawn.get(t.id.as_str()).is_none_or(|(w, _, _)| when > *w) {
+                withdrawn.insert(&t.id, (when, scope, doc::text(item, "quote").unwrap_or_default()));
+            }
+        }
+    }
+    if withdrawn.is_empty() {
+        return;
+    }
+    for r in store.own(None) {
+        let Some(last) = r.last_update() else { continue };
+        let mut seen = HashSet::new();
+        for (field, id) in r.refs() {
+            let Some((when, scope, quote)) = withdrawn.get(id.as_str()).filter(|_| field != "parent" && id != r.id) else { continue };
+            if last.naive_utc() < *when && seen.insert(id.clone()) {
+                let what = if scope == "conclusion" { "its conclusion no longer stands" } else { "its quoted support does not establish its conclusion" };
+                p.warn_on("withdrawn", &rel(&store.cfg.base, &r.path), &id, format!(
+                    "{field} {id}: on {} UTC its outcome (“{}”) was withdrawn: {what}. Read it, then note whether this record relied on it",
+                    when.format("%Y-%m-%d %H:%M"), crate::doc::take(quote, 120)));
+            }
+        }
+    }
+}
+
+/// `outcome.labels` (§3.3): a writer-chosen label per configured facet. Its shape is checked like any
+/// field; its vocabulary only warns, so adopting or changing one never blocks a write.
+fn outcome_labels(store: &Store, at: &str, p: &mut Report, labels: Option<&Node>) {
+    let Some(labels) = labels.filter(|l| !l.is_empty()) else { return };
+    let Node::Map(labels) = labels else {
+        p.err("field", at, "outcome.labels", "outcome.labels must be a mapping of facet to label");
+        return;
+    };
+    let vocabulary = store.cfg.outcome_labels.as_ref();
+    if vocabulary.is_none() {
+        p.warn_on("label", at, "outcome.labels", "outcome.labels is set, but plied.toml has no [outcome_labels] to check it against");
+    }
+    for (facet, label) in labels {
+        let subject = format!("outcome.labels.{facet}");
+        let Some(label) = label.str() else {
+            p.err("field", at, &subject, format!("{subject} must be one label (text)"));
+            continue;
+        };
+        let Some(vocabulary) = vocabulary else { continue };
+        match vocabulary.get(facet) {
+            None => p.warn_on("label", at, &subject, format!("{facet:?} is not a facet in [outcome_labels] ({})", vocabulary.keys().cloned().collect::<Vec<_>>().join(", "))),
+            Some(allowed) if !allowed.iter().any(|a| a == label) => {
+                p.warn_on("label", at, &subject, format!("{subject}: {label:?} is not one of {}", allowed.join(", ")))
+            }
+            Some(_) => {}
+        }
+    }
+}
+
 /// Stale nodes (§8), in two kinds: `named`, when a newer record names the node itself, and `links`,
 /// when it cites only what the node references. Named ones come first: they are the likelier to
 /// call for a change rather than a note.
@@ -688,8 +791,11 @@ pub fn freshness(store: &Store, n: &Record) -> Vec<StaleCause> {
     let watched: Vec<_> = refs.iter()
         .filter(|(field, _)| !n.is_resolved() && *field != "parent" && !(n.is(OwnKind::Commitment) && *field == "nodes"))
         .collect();
+    // a scoped review covers the bytes it names: a later edit of that record makes it news again
+    let reviewed = n.scoped_reviews();
+    let covered = |r: &Record| reviewed.iter().any(|(id, rev)| *id == r.id && r.rev.starts_with(rev.as_str()));
     let mut causes = vec![];
-    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last)) {
+    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last) && !covered(r)) {
         let mentioned = store.mentions(&r.text);
         let named = mentioned.contains(&n.id);
         let mut via: Vec<_> = watched.iter().filter(|(_, id)| mentioned.contains(id)).map(|(field, id)| StaleLink { field: (*field).into(), id: id.clone() }).collect();

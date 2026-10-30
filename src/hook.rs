@@ -58,19 +58,23 @@ fn run(stdin_text: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
         renewed = msgs.renew_session(&session).map(|n| n > 0).unwrap_or(false);
         state.insert("renewed".into(), json!(now));
     }
+    let can_say = event.is_empty() || CONTEXT_EVENTS.contains(&event.as_str());
+    // only an event that can carry context consumes the change, so it is said, not lost
+    let requires = repo.cfg.requires.as_ref().map(ToString::to_string);
+    let change = if can_say { crate::session::observe(&repo.runtime, &session, requires.as_deref()) } else { None };
     let sig = msgs.signature();
-    if state.get("sig").and_then(Value::as_str) == Some(sig.as_str()) && !renewed {
+    if state.get("sig").and_then(Value::as_str) == Some(sig.as_str()) && !renewed && change.is_none() {
         save(&state_p, &state);
         return Ok(None);
     }
-    if !event.is_empty() && !CONTEXT_EVENTS.contains(&event.as_str()) {
+    if !can_say {
         save(&state_p, &state);
         return Ok(None);
     }
     let pending = msgs.undelivered_for_session(&session);
-    let mut out = None;
+    let mut lines: Vec<String> = change.into_iter().map(|c| format!("plied: {c}.")).collect();
     if !pending.is_empty() {
-        let mut lines = vec![format!("plied: {} new message(s) on nodes you have claimed:", pending.len())];
+        lines.push(format!("plied: {} new message(s) on nodes you have claimed:", pending.len()));
         for (agent, m) in &pending {
             let get = |k: &str| m.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
             let reply = if m.get("reply_to").and_then(Value::as_str).is_some_and(|r| !r.is_empty()) {
@@ -99,11 +103,11 @@ fn run(stdin_text: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
                 .collect();
             let _ = msgs.mark("delivered", &ids, &agent, Some(&session), Some(&format!("hook:{event}")));
         }
-        out = Some(
-            json!({"hookSpecificOutput": {"hookEventName": if event.is_empty() { "UserPromptSubmit".into() } else { event.clone() }, "additionalContext": lines.join("\n")}})
-                .to_string(),
-        );
     }
+    let out = (!lines.is_empty()).then(|| {
+        json!({"hookSpecificOutput": {"hookEventName": if event.is_empty() { "UserPromptSubmit".into() } else { event.clone() }, "additionalContext": lines.join("\n")}})
+            .to_string()
+    });
     state.insert("sig".into(), json!(msgs.signature()));
     save(&state_p, &state);
     Ok(out)

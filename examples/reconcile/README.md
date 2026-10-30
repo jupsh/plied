@@ -18,12 +18,17 @@ python3 examples/reconcile/reconcile.py --plied "$(command -v plied)" --store . 
 
 - An eligibility list kept outside the store, as JSON:
   `{"name": "...", "version": "...", "items": [{"id": "M001"}, ...]}`. An id
-  listed twice is an input error (exit 2).
+  listed twice is an input error (exit 2). Name and version must be nonempty
+  text; item ids must be nonempty text without leading or trailing whitespace.
 - The linked records of one `[[sources]]` entry: the ledger. Each entry
   names the item (`--item-field`, default `item`) and says `forecast` or
   `abstain` (`--entry-field`, default `entry`). An entry can name an earlier
   entry for the same item that it `corrects` (`--corrects-field`); the
   corrected entry no longer counts.
+  Corrections must name one readable entry for the same item and must not
+  form a self-reference or cycle. A malformed correction never suppresses
+  its target. Replacement is explicit; chronological order is not inferred
+  from ids or dates.
 
 **Report** (JSON on stdout):
 

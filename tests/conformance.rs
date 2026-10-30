@@ -653,6 +653,9 @@ fn context_and_show_expose_node_conversation_and_presence_without_sealed_records
     assert_eq!(r["vocabularies"]["action_kinds"], serde_json::json!(["run", "report"]));
     assert_eq!(r["identity"]["agent"], "alice");
     assert_eq!(r["identity"]["session"], "sess12345678");
+    assert_eq!(r["identity"]["session_source"], "PLIED_SESSION");
+    let flagged = envelope(&p.run(&["context", "--session", "other", "--json"]));
+    assert_eq!(flagged["result"]["identity"]["session_source"], "--session");
     assert_eq!(r["node"]["messages_args"], serde_json::json!(["messages", "T001"]));
     assert_eq!(r["node"]["claims"][0]["agent"], "alice");
     assert!(!context.to_string().contains("T002"));
@@ -1055,6 +1058,252 @@ fn a_stale_warning_says_whether_the_node_was_named_and_named_ones_come_first() {
     assert!(stale[1].0.contains("T001-") && stale[1].1 == "links", "{stale:?}");
 }
 
+/// Move every history line of a record back to 2000, as if it was last updated long ago.
+fn backdate(p: &Proj, rel: &str) {
+    let path = p.path().join(rel);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let re = regex::Regex::new(r"(?m)^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC").unwrap();
+    std::fs::write(&path, re.replace_all(&text, "- 2000-01-01 00:00 UTC").as_ref()).unwrap();
+}
+
+#[test]
+fn a_reopened_outcome_is_kept_and_its_dependents_are_told() {
+    let p = two_threads();
+    p.evidence("E001", "", "The count is 12 cases.");
+    p.ok(&["new", "question", "--title", "Which cases?", "raised=E001"]);
+    let closed = p.set("T001", &["status=closed", "outcome.ref=E001", "outcome.quote=The count is 12 cases.", "outcome.labels.evidence=inconclusive", "carries=[Q01]"]);
+    assert!(closed.status.success(), "{}", text(&closed));
+    assert!(p.set("T002", &["uses=[T001]"]).status.success());
+    p.ok(&["new", "thread", "--title", "Extends it", "links=[T001]"]);
+    backdate(&p, "plied/threads/T002-second.md");
+    backdate(&p, "plied/threads/T003-extends-it.md");
+
+    // clearing an outcome without keeping it is refused, whatever the write
+    let dropped = p.run(&["set", "T001", "status=open", "outcome=", "carries=", "--expect", &p.rev("T001"), "--json"]);
+    assert_eq!(dropped.status.code(), Some(4));
+    assert_eq!(envelope(&dropped)["error"]["detail"]["diagnostics"][0]["code"], "outcome-kept");
+    assert_eq!(p.code(&["reopen", "T001", "--scope", "wrong", "--because", "x", "--expect", &p.rev("T001")]), Some(2));
+    assert_eq!(p.code(&["reopen", "T002", "--scope", "conclusion", "--because", "x", "--expect", &p.rev("T002")]), Some(1), "not closed");
+
+    let closed_source = p.rev("E001");
+    p.edit("evidence/E001.md", "12 cases.", "12 cases. Later context.");
+    let e1 = p.rev("E001");
+    assert_ne!(e1, closed_source);
+    p.ok(&["reopen", "T001", "--scope", "conclusion", "--because", "case 7 was a duplicate", "--replaced-by", "T003", "--session", "reopen-session", "--expect", &p.rev("T001")]);
+    assert!(envelope(&p.run(&["context", "--session", "reopen-session", "--json"]))["result"]["session_seen"]["version"].is_string());
+    let t1 = envelope(&p.run(&["show", "T001", "--json"]))["result"].clone();
+    assert_eq!(t1["status"], "open");
+    assert!(t1.get("outcome").is_none() && t1.get("carries").is_none(), "{t1}");
+    let kept = &t1["prior_outcomes"][0];
+    assert_eq!((kept["quote"].as_str(), kept["ref"].as_str(), kept["rev"].as_str()), (Some("The count is 12 cases."), Some("E001"), Some(e1.as_str())));
+    assert_eq!(kept["carries"], serde_json::json!(["Q01"]));
+    assert_eq!(kept["labels"], serde_json::json!({"evidence": "inconclusive"}));
+    assert_eq!((kept["scope"].as_str(), kept["replaced_by"].as_str()), (Some("conclusion"), Some("T003")));
+
+    // what referenced it before the withdrawal is told, once per thread, until it is reviewed
+    let withdrawn = |p: &Proj| -> Vec<(String, String)> {
+        diagnostics(p).into_iter().filter(|(_, c, _, _)| c == "withdrawn").map(|(_, _, w, s)| (w, s)).collect()
+    };
+    let got = withdrawn(&p);
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!(got.iter().all(|(_, s)| s == "T001"), "{got:?}");
+    p.ok(&["note", "T002", "uses only the method, not the count", "--expect", &p.rev("T002")]);
+    assert_eq!(withdrawn(&p).len(), 1);
+
+    // closing again and then changing the outcome in place is refused too; a correction is kept
+    assert!(p.set("T001", &["status=closed", "outcome.ref=E001", "outcome.quote=The count is 12 cases."]).status.success());
+    assert_eq!(p.set("T001", &["outcome.quote=12 cases"]).status.code(), Some(4));
+    p.ok(&["reopen", "T001", "--scope", "corrected", "--because", "quote the shorter phrase", "--expect", &p.rev("T001")]);
+    assert_eq!(envelope(&p.run(&["show", "T001", "--json"]))["result"]["prior_outcomes"].as_array().unwrap().len(), 2);
+
+    // the list is append-only like reviews: prior_outcomes is the last field, so drop it
+    let file = std::fs::read_to_string(p.path().join("plied/threads/T001-first.md")).unwrap();
+    let (head, rest) = file.split_at(file.find("prior_outcomes:").unwrap());
+    std::fs::write(p.path().join("replacement.md"), format!("{head}{}", &rest[rest.find("---\n").unwrap()..])).unwrap();
+    let out = p.run(&["replace", "T001", "replacement.md", "--expect", &p.rev("T001"), "--json"]);
+    assert_eq!(out.status.code(), Some(4), "{}", text(&out));
+    let codes: Vec<String> = envelope(&out)["error"]["detail"]["diagnostics"].as_array().unwrap().iter().map(|d| d["code"].as_str().unwrap().to_string()).collect();
+    assert!(codes.contains(&"append-only".to_string()), "{codes:?}");
+}
+
+#[test]
+fn outcome_labels_are_writer_chosen_per_facet_and_only_warn() {
+    // the research example's T002: the criterion was not met, and that settles nothing elsewhere,
+    // so how the work ended and what the evidence supports are separate facets
+    let p = Proj::new();
+    p.with_evidence();
+    p.evidence("E004", "", "The declared effect criterion was not met in run 02.");
+    p.ok(&["new", "thread", "--title", "Interpret against the plan"]);
+    let close = |p: &Proj, labels: &[&str]| {
+        let mut args = vec!["status=closed", "outcome.ref=E004", "outcome.quote=The declared effect criterion was not met in run 02."];
+        args.extend(labels);
+        p.set("T001", &args)
+    };
+    let labels = |p: &Proj| -> Vec<(String, String)> {
+        diagnostics(p).into_iter().filter(|(_, c, _, _)| c == "label").map(|(l, _, _, s)| (l, s)).collect()
+    };
+    // Shape is enforced even without a vocabulary; only vocabulary membership is advisory.
+    assert_eq!(close(&p, &["outcome.labels.criterion=[not-met]"]).status.code(), Some(4));
+    assert_eq!(close(&p, &["outcome.labels.criterion.detail=not-met"]).status.code(), Some(4));
+    // without a vocabulary a label is allowed, with a warning that nothing checks it
+    assert!(close(&p, &["outcome.labels.criterion=not-met"]).status.success());
+    assert_eq!(labels(&p), [("warning".to_string(), "outcome.labels".to_string())]);
+
+    p.append_config("[outcome_labels]\nprocedure = [\"as-planned\", \"stopped-early\"]\ncriterion = [\"met\", \"not-met\"]\nevidence = [\"informative\", \"inconclusive\"]\n");
+    assert!(labels(&p).is_empty(), "{:?}", labels(&p));
+    let rev = p.rev("T001");
+    p.ok(&["set", "T001", "outcome.labels.evidence=inconclusive", "outcome.labels.procedure=as-planned", "--expect", &rev]);
+    let found = envelope(&p.run(&["find", r#"{"outcome.labels.evidence": "inconclusive"}"#, "--json"]));
+    assert_eq!(found["result"][0]["id"], "T001", "the question the issue could not ask of the store");
+    assert_eq!(found["result"][0]["outcome"]["labels"]["criterion"], "not-met");
+
+    // a label or facet outside the vocabulary warns, and never blocks the write
+    let rev = p.rev("T001");
+    p.ok(&["set", "T001", "outcome.labels.criterion=sort-of", "outcome.labels.mood=good", "--expect", &rev]);
+    let mut got = labels(&p);
+    got.sort();
+    assert_eq!(got, [("warning".into(), "outcome.labels.criterion".into()), ("warning".into(), "outcome.labels.mood".into())]);
+    // but the shape is a field like any other
+    assert_eq!(p.set("T001", &["outcome.labels=[a, b]"]).status.code(), Some(4));
+    let schema = envelope(&p.run(&["schema", "thread", "--json"]));
+    let outcome = schema["result"]["fields"].as_array().unwrap().iter().find(|f| f["name"] == "outcome").unwrap().clone();
+    let labels_field = outcome["properties"].as_array().unwrap().iter().find(|f| f["name"] == "labels").unwrap().clone();
+    assert_eq!(labels_field["type"], "mapping");
+    assert_eq!(labels_field["properties"][0]["name"], "criterion");
+    assert_eq!(schema["result"]["vocabularies"]["outcome_labels"]["evidence"], serde_json::json!(["informative", "inconclusive"]));
+
+    p.append_config("[outcome_labels.bad]\nx = 1\n");
+    assert_eq!(p.code(&["check"]), Some(1), "a facet is a list of labels");
+}
+
+#[test]
+fn show_refs_expands_one_hop_without_naming_what_it_cannot_read() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"decision\"\nglob = \"d/*.md\"\nid = \"^D[0-9]{3}$\"\n");
+    std::fs::create_dir_all(p.path().join("d")).unwrap();
+    std::fs::write(p.path().join("d/D001.md"), "---\nid: D001\ntitle: Pilot\n---\nThe pilot showed a small effect; rerun or ship.\n\nMore detail.\n").unwrap();
+    std::fs::write(p.path().join("d/D002.md"), "---\nid: D002\ntitle: secret\n---\nhidden words\n").unwrap();
+    p.ok(&["new", "thread", "--title", "Rerun the pilot"]);
+    p.ok(&["new", "commitment", "--title", "Prereg first", "made=D001", "wording=rerun or ship", "nodes=[T001]"]);
+    p.ok(&["new", "question", "--title", "Rerun or ship?", "raised=D001", "nodes=[T001]", "links=[D002, D001, P01]"]);
+    p.edit("plied.toml", "sealed = []", "sealed = [\"D002\"]");
+
+    let v = envelope(&p.run(&["show", "Q01", "--refs", "--linked", "--freshness", "--summary", "--json"]));
+    let refs = &v["result"]["refs"];
+    let ids: Vec<&str> = refs["records"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["D001", "T001", "P01"], "reference order, each once");
+    let d1 = &refs["records"][0];
+    assert_eq!(d1["via"], serde_json::json!(["raised", "links"]));
+    assert_eq!((d1["kind"].as_str(), d1["path"].as_str()), (Some("decision"), Some("d/D001.md")));
+    assert_eq!(d1["rev"], p.rev("D001"));
+    assert_eq!(d1["preview"], serde_json::json!({"from": "body", "text": "The pilot showed a small effect; rerun or ship."}));
+    let t1 = &refs["records"][1];
+    assert_eq!(t1["commitments"][0]["id"], "P01");
+    assert_eq!(t1["commitments"][0]["chains"][0], "T001 ← P01 (attached)");
+    assert_eq!(refs["records"][2]["wording"], "rerun or ship");
+    assert_eq!(refs["unavailable"], serde_json::json!([{"id": "D002", "via": ["links"]}]));
+    assert!(!v.to_string().contains("hidden words") && !v.to_string().contains("secret"), "nothing of the sealed record: {v}");
+    assert!(envelope(&p.run(&["show", "Q01", "--json"]))["result"].get("refs").is_none(), "opt-in");
+}
+
+#[test]
+fn linked_work_shows_configured_fields_with_their_provenance() {
+    let p = Proj::new();
+    p.append_config(concat!(
+        "[[sources]]\nname = \"backlog\"\nglob = \"backlog/*.md\"\nid = \"^B[0-9]{3}$\"\nstatus = \"status\"\n",
+        "show_fields = [\"priority\", \"size\", \"claimed_by\"]\n",
+        "[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\n",
+    ));
+    std::fs::create_dir_all(p.path().join("backlog")).unwrap();
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    std::fs::write(p.path().join("backlog/B001.md"), "---\nid: B001\ntitle: parser\nstatus: in-progress\npriority: P1\nclaimed_by: carol\n---\n").unwrap();
+    std::fs::write(p.path().join("backlog/B002.md"), "---\nid: B002\ntitle: hidden\nstatus: open\n---\n").unwrap();
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: a decision\n---\n").unwrap();
+    p.ok(&["new", "thread", "--title", "Fix parser", "backlog=B001", "links=[B001, D001, B002]", "actor=alice", "next=1"]);
+    p.ok(&["claim", "T001"]);
+    p.edit("plied.toml", "sealed = []", "sealed = [\"B002\"]");
+
+    let v = envelope(&p.run(&["frontier", "--linked", "--json"]));
+    let row = &v["result"]["queues"]["alice"][0];
+    assert_eq!(row["claims"][0]["agent"], "alice", "plied's own claims, apart from the linked record's");
+    // only the source that lists show_fields takes part; the sealed record is not loaded, so not shown
+    assert_eq!(row["linked"].as_array().unwrap().len(), 1, "{row}");
+    let item = &row["linked"][0];
+    assert_eq!(item["record"], "B001");
+    assert_eq!(item["source"], "backlog");
+    assert_eq!(item["path"], "backlog/B001.md");
+    assert_eq!(item["rev"], p.rev("B001"));
+    assert_eq!(item["via"], serde_json::json!(["backlog", "links"]));
+    assert_eq!(item["status"], "in-progress");
+    assert_eq!(item["fields"], serde_json::json!({"priority": "P1", "size": null, "claimed_by": "carol"}), "an unstated field is null, never guessed");
+    let shown = envelope(&p.run(&["show", "T001", "--linked", "--json"]));
+    assert_eq!(shown["result"]["linked"], row["linked"]);
+    assert!(envelope(&p.run(&["frontier", "--json"]))["result"]["queues"]["alice"][0].get("linked").is_none(), "opt-in");
+    let text = p.ok(&["frontier", "--linked"]);
+    assert!(text.contains("claimed_by=carol") && text.contains("size=?") && text.contains("not plied claims"), "{text}");
+
+    p.append_config("[[sources]]\nname = \"bad\"\nglob = \"x/*.md\"\nid = \"^X\"\nshow_fields = \"priority\"\n");
+    assert_eq!(p.code(&["frontier"]), Some(1), "show_fields is a list of strings");
+}
+
+#[test]
+fn a_scoped_review_clears_only_the_revisions_it_names() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    p.ok(&["new", "thread", "--title", "Fit"]);
+    // backdate the thread's only history line, so that a write today is newer than the records
+    let path = p.path().join("plied/threads/T001-fit.md");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let at = text.find("\n- ").unwrap() + 3;
+    std::fs::write(&path, format!("{}2000-01-01 00:00{}", &text[..at], &text[at + 16..])).unwrap();
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: mine\ndate: 2001-01-01\n---\nT001 changes method.\n").unwrap();
+    std::fs::write(p.path().join("log/D002.md"), "---\nid: D002\ntitle: theirs\ndate: 2001-01-02\n---\nT001 needs another look.\n").unwrap();
+    std::fs::write(p.path().join("log/D003.md"), "---\nid: D003\ntitle: unrelated\ndate: 2001-01-03\n---\nNothing here.\n").unwrap();
+    let causes = |p: &Proj| -> Vec<String> {
+        envelope(&p.run(&["show", "T001", "--freshness", "--json"]))["result"]["freshness"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["record"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(causes(&p), ["D001", "D002"]);
+    let d1 = p.rev("D001");
+    let note = |p: &Proj, reviewed: &str| p.run(&["note", "T001", "D001 changes the method; T001 is unaffected", "--reviewed", reviewed, "--expect", &p.rev("T001"), "--json"]);
+
+    // refusals: the syntax, a plied record, a revision that is not current
+    assert_eq!(note(&p, "D001").status.code(), Some(2));
+    assert_eq!(note(&p, &format!("T001@{}", p.rev("T001"))).status.code(), Some(1));
+    let refused = note(&p, "D001@deadbeef");
+    assert_eq!(refused.status.code(), Some(3));
+    assert_eq!(envelope(&refused)["error"]["detail"]["id"], "D001");
+
+    // the note vouches for D001 at the revision read, and leaves D002 standing
+    let reviewed = format!("D001@{}", &d1[..8]);
+    let punctuated = p.run_as("worker:one", &["note", "T001", "D001 changes the method; T001 is unaffected", "--reviewed", &reviewed, "--expect", &p.rev("T001"), "--json"]);
+    assert!(punctuated.status.success(), "{}", common::text(&punctuated));
+    assert_eq!(causes(&p), ["D002"]);
+    let shown = p.ok(&["show", "T001"]);
+    assert!(shown.contains(&format!(": reviewed D001@{}; D001 changes the method", &d1[..12])), "{shown}");
+    let stale: Vec<_> = diagnostics(&p).into_iter().filter(|(_, c, _, _)| c == "stale").collect();
+    assert_eq!(stale.len(), 1, "D002 still makes T001 stale: {stale:?}");
+
+    // set can carry a scoped review too; one that names a record not making the node stale says so
+    let rev = p.rev("T001");
+    let out = envelope(&p.run(&["set", "T001", "next=1", "--reviewed", &format!("D003@{}", p.rev("D003")), "--expect", &rev, "--json"]));
+    assert!(out["notes"][0].as_str().unwrap().contains("D003 does not make T001 stale"), "{out}");
+    assert_eq!(causes(&p), ["D002"], "a scoped write moves nothing else on, whatever else it changes");
+
+    // the review covers bytes: an edit to D001 makes it news again
+    p.edit("log/D001.md", "changes method", "changes method again");
+    assert_eq!(causes(&p), ["D001", "D002"]);
+
+    // an ordinary note still vouches for everything newer, as before
+    p.ok(&["note", "T001", "read both", "--expect", &p.rev("T001")]);
+    assert_eq!(causes(&p), Vec::<String>::new());
+}
+
 // ------------------------------------------------------------------------ §7 the view
 
 #[test]
@@ -1186,9 +1435,43 @@ fn action_kinds_restrict_new_reviews_and_warn_about_old_ones() {
     assert_eq!(p.code(&["dispose", "P01", "--action", "rollback:1", "--disposition", "satisfied", "--because", "x", "--expect", &rev]), Some(2));
     assert_eq!(gate(&p, "T001", "run:fit-20261024"), Some(6), "a known kind gates as before");
     dispose(&p, "run:fit-20261024", "satisfied");
-    assert_eq!(gate(&p, "T001", "run:fit-20261024"), Some(0));
+    let passed = p.run(&["review", "T001", "--action", "run:fit-20261024", "--gate"]);
+    assert_eq!(passed.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&passed.stderr).contains("gate: passed for run:fit-20261024"), "a pass says so: {}", text(&passed));
     let out = p.ok(&["check"]);
     assert!(out.contains("warning") && out.contains("deploy-friday"), "the old review is a warning, not an error:\n{out}");
+}
+
+#[test]
+fn an_unknown_action_kind_says_what_to_ask_for_and_review_still_previews_it() {
+    let p = two_threads();
+    commitment(&p, &["nodes=[T001]"]);
+    p.append_config("[checks]\naction_kinds = [\"run\", \"publish\"]\n");
+    let refused = p.run(&["review", "T001", "--action", "apply:patch-3", "--gate", "--json"]);
+    assert_eq!(refused.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    let detail = &v["error"]["detail"];
+    assert_eq!(detail["action"], "apply:patch-3");
+    assert_eq!(detail["kind"], "apply");
+    assert_eq!(detail["action_kinds"], serde_json::json!(["run", "publish"]));
+    assert_eq!(detail["config"]["key"], "checks.action_kinds");
+    assert_eq!(detail["config"]["proposed"], serde_json::json!(["run", "publish", "apply"]));
+    assert!(detail["config"]["path"].as_str().unwrap().ends_with("plied.toml"), "{detail}");
+    assert!(v["error"]["message"].as_str().unwrap().contains(r#"action_kinds = ["run", "publish", "apply"]"#), "{v}");
+    let rev = p.rev("P01");
+    let refused = p.run(&["dispose", "P01", "--action", "apply:patch-3", "--disposition", "satisfied", "--because", "x", "--expect", &rev, "--json"]);
+    assert_eq!(refused.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(v["error"]["detail"]["kind"], "apply", "dispose refuses with the same detail");
+
+    // without --gate, review only reads, so it shows what would govern the action once the kind exists
+    let out = p.run(&["review", "T001", "--action", "apply:patch-3", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["result"]["commitments"][0]["id"], "P01");
+    assert_eq!(v["result"]["commitments"][0]["governs_action"], true);
+    assert!(v["result"]["gate"].is_null());
+    assert!(v["notes"][0].as_str().unwrap().contains("checks.action_kinds"), "{v}");
 }
 
 // ------------------------------------------------------------------------- dates
