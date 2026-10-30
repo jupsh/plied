@@ -99,6 +99,11 @@ beyond the diagnostic preview, message-independent comparisons, and a file
 moved behind an existing seal. Compact views preserve full JSON fields and
 do not change records or review requirements.
 
+CI additionally caught a macOS fixture collision: the test-only seal
+`private/` matched macOS's `/private` temporary-directory prefix. The fixture
+now uses the distinctive `hidden-evidence/` directory and selects its source
+entry explicitly. The focused baseline regressions were rerun after this fix.
+
 After the memory warning, about 500 MiB of task build output was moved from
 RAM-backed `/tmp` to disk, and all remaining builds/checks ran serially.
 The open-board listing was refreshed before publication: the same 17 issues

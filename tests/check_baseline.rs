@@ -87,13 +87,14 @@ fn comparison_refuses_unsupported_incomplete_or_differently_scoped_snapshots() {
 #[test]
 fn moving_evidence_behind_an_existing_seal_cannot_echo_saved_hashes() {
     let p = project();
-    p.edit("plied.toml", "sealed = []", "sealed = [\"private/\"]");
+    p.edit("plied.toml", "sealed = []", "sealed = [\"hidden-evidence/\"]");
     p.edit("plied.toml", "log/*.md", "log/**/*.md");
     let before = report(&p, &["check", "--json"]);
     let path = save(&p, &before);
-    let old_hash = before["result"]["comparison_basis"]["entries"][0]["source"]["rev"].as_str().unwrap();
-    std::fs::create_dir(p.path().join("log/private")).unwrap();
-    std::fs::rename(p.path().join("log/D001.md"), p.path().join("log/private/D001.md")).unwrap();
+    let entry = before["result"]["comparison_basis"]["entries"].as_array().unwrap().iter().find(|entry| entry["source"]["record"] == "D001").expect("readable stale source must be captured");
+    let old_hash = entry["source"]["rev"].as_str().unwrap();
+    std::fs::create_dir(p.path().join("log/hidden-evidence")).unwrap();
+    std::fs::rename(p.path().join("log/D001.md"), p.path().join("log/hidden-evidence/D001.md")).unwrap();
     let hidden = report(&p, &["check", "--baseline", &path, "--json"]);
     assert_eq!(hidden["exit"], 2);
     assert!(!hidden.to_string().contains("D001"));
