@@ -288,6 +288,30 @@ unless its type says otherwise.
 | `links` | refs | no | linking a commitment attaches it (§12) |
 | `cites` | citations | no | §10 |
 | `scanned` | list of mappings | no | scan reviews: linked records read for commitments and found to hold none to record (§8). Added in 0.2.0 |
+| `prior_outcomes` | list of mappings | no | outcomes the thread no longer holds, kept when it was reopened (below). Added in 0.12.0 |
+
+A `prior_outcomes` item keeps an outcome that a write cleared or changed:
+`quote` and `ref` (required, as the outcome had them; `ref` is a snapshot, so
+it need not exist now), `rev` (the full revision of `ref`'s record when the
+outcome was moved, if it was readable: the evidence as it stood), `carries`
+(what the thread carried then), `scope` (required, below), `because`
+(required, prose), `by`, `at` (as for `reviews`) and `replaced_by` (a
+reference to whatever replaces the outcome; it must exist). `scope` says
+what became of the outcome, since these are different claims:
+
+| scope | the outcome |
+|---|---|
+| `conclusion` | no longer stands |
+| `rationale` | may stand, but its quoted support does not establish it |
+| `continued` | stands within its scope; the work on the thread goes on |
+| `corrected` | is the same conclusion, to be restated (a quotation or reference fixed) |
+
+Items are only appended (§11). Each later withdrawal is another item; none
+rewrites an earlier one. `conclusion` and `rationale` are reported to the
+records that referenced the thread (`withdrawn`, §8); plied infers nothing
+about whether they are affected, and new evidence for the same conclusion
+does not reinstate a withdrawn item. Stores using `prior_outcomes` should
+set `requires = ">=0.12.0"`.
 
 `status` is one of `open` (nothing named stops it), `waiting` (on
 `waiting_on`), `held` (by a decision), `parked` (set aside), `closed`
@@ -655,7 +679,12 @@ in `checks.action_kinds` (code `action`, a warning so that adopting a
 vocabulary never blocks records made before it); a superseded commitment
 whose replacement, followed through `superseded_by` to the first commitment
 that is not superseded, is unresolved and does not apply (§12) to every node
-the superseded one applies to (code `superseded`, added in 0.7.0).
+the superseded one applies to (code `superseded`, added in 0.7.0); a record whose last update (§3.5) is
+older than the latest `conclusion` or `rationale` item in the
+`prior_outcomes` of a thread it references through any reference field but
+`parent` (code `withdrawn`, subject the thread's id, added in 0.12.0: it may
+rest on a withdrawn result, which only a reader can judge; a note after
+reading clears it).
 
 `source-empty` counts files after access filtering (§9), before parsing or
 checking ids. Directories do not count; an idless template or a file with an
@@ -878,8 +907,21 @@ coordinates plied writers; it is not snapshot isolation against arbitrary
 edits of linked files. Approval-to-artifact revision binding is separate
 and remains unimplemented.
 
+`plied reopen T --scope S --because … [--replaced-by R] [--status open]
+--expect REV` moves a closed thread's outcome into `prior_outcomes` in one
+write: it appends an item with the outcome's `quote` and `ref`, the current
+revision of `ref`'s record when readable, the thread's `carries`, the given
+`scope`, `because` and `replaced_by`, removes `outcome` and `carries`, and
+sets `status` (`open`, `waiting`, `held` or `parked`; default `open`). A
+thread that is not closed with an outcome is an error (exit 1); an unknown
+scope is a usage error (exit 2). Since 0.12.0, any checked write that clears
+a thread's outcome or changes its `quote` or `ref` without appending an item
+with the old `quote` and `ref` in the same write is refused with exit 4 and
+an `outcome-kept` diagnostic (subject `outcome`). To restate an outcome,
+reopen with scope `corrected`, then close it again.
+
 All checked record writes, including `set` and `replace`, MUST preserve the
-existing `reviews` and `scanned` entries as an unchanged prefix in list
+existing `reviews`, `scanned` and `prior_outcomes` entries as an unchanged prefix in list
 order. Appending is allowed; deleting, editing or reordering existing entries
 is refused with exit 4 and an `append-only` diagnostic (subject: the list
 field, location: the record path). This is a write-time comparison, not a
@@ -1002,7 +1044,7 @@ string or null. This also appears on full thread records returned by `find`
 | `context [NODE]` | project and identity discovery (§11.2), including an unconfigured directory; never writes records or runtime state |
 | `schema KIND` | record fields, examples and configured vocabularies (§11.2); works without a project |
 | `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`, `messages_args: ["messages", ID]` and `claims: [claim]`; a plied thread or question also has `commitments: [{id, rev, state, title, chains, governs}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0; `governs` in 0.7.0, null when absent) |
-| `new`, `set`, `note`, `replace`, `dispose`, `scanned` | `{id, rev}`: the record written |
+| `new`, `set`, `note`, `replace`, `dispose`, `scanned`, `reopen` | `{id, rev}`: the record written |
 | `list` | `[{id, kind, title, state, rev, path}]` |
 | `find` | records without `body` and `text` |
 | `backlinks` | `[{id, how}]`, as in `show` |

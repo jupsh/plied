@@ -349,10 +349,13 @@ and record a short comparison on the new task:
 A valid old result stays valid within its scope. Keep its closed outcome
 when opening a distinct task outside that scope. A new hypothesis does not
 by itself withdraw the old conclusion or show the new attempt will succeed.
-When the old conclusion or its rationale is defective, preserve the original
-claim and a linked correction explaining the reason and scope before changing
-the thread; reopening currently clears `outcome`, so retain it in that linked
-record first. A reference to a corrected result does not make every dependent
+When the old conclusion or its rationale is defective, reopen the thread with
+`plied reopen T001 --scope conclusion|rationale --because "…" --expect <rev>`:
+it keeps the outcome, its evidence revision and what it carried in
+`prior_outcomes`, and `check` tells the records that relied on it. Use
+`--scope continued` when the conclusion stands and the work goes on, and
+`--scope corrected` to restate it. `set status=open outcome=` is refused: the
+outcome would be lost. A reference to a corrected result does not make every dependent
 conclusion invalid automatically.
 
 Use `uses` and `waiting_on` for actual dependencies: they carry applicable

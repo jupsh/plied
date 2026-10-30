@@ -1055,6 +1055,69 @@ fn a_stale_warning_says_whether_the_node_was_named_and_named_ones_come_first() {
     assert!(stale[1].0.contains("T001-") && stale[1].1 == "links", "{stale:?}");
 }
 
+/// Move every history line of a record back to 2000, as if it was last updated long ago.
+fn backdate(p: &Proj, rel: &str) {
+    let path = p.path().join(rel);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let re = regex::Regex::new(r"(?m)^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC").unwrap();
+    std::fs::write(&path, re.replace_all(&text, "- 2000-01-01 00:00 UTC").as_ref()).unwrap();
+}
+
+#[test]
+fn a_reopened_outcome_is_kept_and_its_dependents_are_told() {
+    let p = two_threads();
+    p.evidence("E001", "", "The count is 12 cases.");
+    p.ok(&["new", "question", "--title", "Which cases?", "raised=E001"]);
+    let closed = p.set("T001", &["status=closed", "outcome.ref=E001", "outcome.quote=The count is 12 cases.", "carries=[Q01]"]);
+    assert!(closed.status.success(), "{}", text(&closed));
+    assert!(p.set("T002", &["uses=[T001]"]).status.success());
+    p.ok(&["new", "thread", "--title", "Extends it", "links=[T001]"]);
+    backdate(&p, "plied/threads/T002-second.md");
+    backdate(&p, "plied/threads/T003-extends-it.md");
+
+    // clearing an outcome without keeping it is refused, whatever the write
+    let dropped = p.run(&["set", "T001", "status=open", "outcome=", "carries=", "--expect", &p.rev("T001"), "--json"]);
+    assert_eq!(dropped.status.code(), Some(4));
+    assert_eq!(envelope(&dropped)["error"]["detail"]["diagnostics"][0]["code"], "outcome-kept");
+    assert_eq!(p.code(&["reopen", "T001", "--scope", "wrong", "--because", "x", "--expect", &p.rev("T001")]), Some(2));
+    assert_eq!(p.code(&["reopen", "T002", "--scope", "conclusion", "--because", "x", "--expect", &p.rev("T002")]), Some(1), "not closed");
+
+    let e1 = p.rev("E001");
+    p.ok(&["reopen", "T001", "--scope", "conclusion", "--because", "case 7 was a duplicate", "--replaced-by", "T003", "--expect", &p.rev("T001")]);
+    let t1 = envelope(&p.run(&["show", "T001", "--json"]))["result"].clone();
+    assert_eq!(t1["status"], "open");
+    assert!(t1.get("outcome").is_none() && t1.get("carries").is_none(), "{t1}");
+    let kept = &t1["prior_outcomes"][0];
+    assert_eq!((kept["quote"].as_str(), kept["ref"].as_str(), kept["rev"].as_str()), (Some("The count is 12 cases."), Some("E001"), Some(e1.as_str())));
+    assert_eq!(kept["carries"], serde_json::json!(["Q01"]));
+    assert_eq!((kept["scope"].as_str(), kept["replaced_by"].as_str()), (Some("conclusion"), Some("T003")));
+
+    // what referenced it before the withdrawal is told, once per thread, until it is reviewed
+    let withdrawn = |p: &Proj| -> Vec<(String, String)> {
+        diagnostics(p).into_iter().filter(|(_, c, _, _)| c == "withdrawn").map(|(_, _, w, s)| (w, s)).collect()
+    };
+    let got = withdrawn(&p);
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert!(got.iter().all(|(_, s)| s == "T001"), "{got:?}");
+    p.ok(&["note", "T002", "uses only the method, not the count", "--expect", &p.rev("T002")]);
+    assert_eq!(withdrawn(&p).len(), 1);
+
+    // closing again and then changing the outcome in place is refused too; a correction is kept
+    assert!(p.set("T001", &["status=closed", "outcome.ref=E001", "outcome.quote=The count is 12 cases."]).status.success());
+    assert_eq!(p.set("T001", &["outcome.quote=12 cases"]).status.code(), Some(4));
+    p.ok(&["reopen", "T001", "--scope", "corrected", "--because", "quote the shorter phrase", "--expect", &p.rev("T001")]);
+    assert_eq!(envelope(&p.run(&["show", "T001", "--json"]))["result"]["prior_outcomes"].as_array().unwrap().len(), 2);
+
+    // the list is append-only like reviews: prior_outcomes is the last field, so drop it
+    let file = std::fs::read_to_string(p.path().join("plied/threads/T001-first.md")).unwrap();
+    let (head, rest) = file.split_at(file.find("prior_outcomes:").unwrap());
+    std::fs::write(p.path().join("replacement.md"), format!("{head}{}", &rest[rest.find("---\n").unwrap()..])).unwrap();
+    let out = p.run(&["replace", "T001", "replacement.md", "--expect", &p.rev("T001"), "--json"]);
+    assert_eq!(out.status.code(), Some(4), "{}", text(&out));
+    let codes: Vec<String> = envelope(&out)["error"]["detail"]["diagnostics"].as_array().unwrap().iter().map(|d| d["code"].as_str().unwrap().to_string()).collect();
+    assert!(codes.contains(&"append-only".to_string()), "{codes:?}");
+}
+
 // ------------------------------------------------------------------------ §7 the view
 
 #[test]

@@ -6,6 +6,16 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Keep a thread's outcome when it is reopened. `plied reopen T --scope
+  conclusion|rationale|continued|corrected --because …` moves the outcome
+  (quote, ref, the ref's revision, carries) into the append-only
+  `prior_outcomes` list in one write. A write that clears or changes an
+  outcome without keeping it is now refused (`outcome-kept`, exit 4). Records
+  that referenced a thread before its conclusion or rationale was withdrawn
+  get a `withdrawn` warning until they are reviewed. Stores using
+  `prior_outcomes` should set `requires = ">=0.12.0"`.
+  ([#31](https://github.com/jupsh/plied/issues/31))
+
 ## 0.11.0 — 2026-10-29
 
 The record format and JSON envelope remain at version 1. Stores using

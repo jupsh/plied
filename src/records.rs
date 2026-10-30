@@ -73,7 +73,7 @@ impl OwnKind {
         match self {
             OwnKind::Thread => &[
                 "id", "title", "parent", "status", "next", "actor", "due", "waiting_on", "uses", "approval", "outcome", "carries",
-                "closes_when", "revisit", "revisit_on", "backlog", "links", "cites", "scanned",
+                "closes_when", "revisit", "revisit_on", "backlog", "links", "cites", "scanned", "prior_outcomes",
             ],
             OwnKind::Commitment => &[
                 "id", "title", "wording", "summary", "made", "trigger", "state", "due", "applies", "governs", "nodes", "resolved_by",
@@ -105,7 +105,11 @@ impl OwnKind {
     }
 }
 
-pub const LIST_FIELDS: [&str; 10] = ["waiting_on", "uses", "carries", "links", "nodes", "options", "cites", "reviews", "scanned", "governs"];
+/// What became of an outcome kept in `prior_outcomes` (§3.3): it no longer stands, its quoted support
+/// does not establish it, it stands while the work continues, or it is the same conclusion restated.
+pub const PRIOR_SCOPES: [&str; 4] = ["conclusion", "rationale", "continued", "corrected"];
+
+pub const LIST_FIELDS: [&str; 11] = ["waiting_on", "uses", "carries", "links", "nodes", "options", "cites", "reviews", "scanned", "governs", "prior_outcomes"];
 
 static HISTORY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^- (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC\b(.*)$").unwrap());
 static REF_END: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\s,;]").unwrap());

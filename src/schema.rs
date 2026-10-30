@@ -11,6 +11,7 @@ pub fn subfields(field: &str) -> Option<&'static [&'static str]> {
         "reviews" => Some(&["action", "disposition", "at", "by", "because", "ref", "inputs"]),
         "reviews.inputs" => Some(&["record", "rev"]),
         "scanned" => Some(&["record", "rev", "at", "by", "because"]),
+        "prior_outcomes" => Some(&["quote", "ref", "rev", "carries", "scope", "because", "by", "at", "replaced_by"]),
         _ => None,
     }
 }
@@ -18,6 +19,7 @@ pub fn subfields(field: &str) -> Option<&'static [&'static str]> {
 pub fn enums(field: &str) -> &'static [(&'static str, &'static [&'static str])] {
     match field {
         "cites" => &[("kind", &["table", "figure"]), ("image_checked", &["true", "false"])],
+        "prior_outcomes" => &[("scope", &crate::records::PRIOR_SCOPES)],
         _ => &[],
     }
 }
@@ -70,8 +72,8 @@ pub fn describe(kind: OwnKind, cfg: Option<&Config>) -> Value {
             let mut values = enums(field).iter().find(|(n, _)| n == name).map_or(Value::Null, |(_, values)| json!(values));
             if full == "approval.state" { values = json!(["approved", "not approved"]); }
             if full == "reviews.disposition" { values = json!(Disposition::ALL); }
-            json!({"name": name, "type": if *name == "page" { "integer" } else if full == "reviews.inputs" { "list" } else { "string" }, "values": values,
-                "required": matches!((*field, *name), ("approval", "state") | ("outcome", "quote" | "ref") | ("cites", "paper" | "page") | ("reviews", "action" | "disposition") | ("scanned", "record" | "rev")),
+            json!({"name": name, "type": if *name == "page" { "integer" } else if matches!(full.as_str(), "reviews.inputs" | "prior_outcomes.carries") { "list" } else { "string" }, "values": values,
+                "required": matches!((*field, *name), ("approval", "state") | ("outcome", "quote" | "ref") | ("cites", "paper" | "page") | ("reviews", "action" | "disposition") | ("scanned", "record" | "rev") | ("prior_outcomes", "quote" | "ref" | "scope" | "because")),
                 "references": if kind.ref_fields().contains(&full.as_str()) || full == "scanned.record" { targets(&full, cfg) } else { Value::Null },
                 "properties": if full == "reviews.inputs" { Some(vec![
                     json!({"name": "record", "type": "string", "required": true, "references": targets("reviews.inputs.record", cfg)}),
@@ -84,7 +86,7 @@ pub fn describe(kind: OwnKind, cfg: Option<&Config>) -> Value {
             "references": if reference { targets(field, cfg) } else { Value::Null },
             "required": matches!(*field, "id" | "title") || *field == kind.state_field() || matches!((kind, *field), (OwnKind::Commitment, "wording" | "made") | (OwnKind::Question, "raised")),
             "default": if *field == kind.state_field() { json!("open") } else if *field == "applies" { json!("linked") } else { Value::Null },
-            "required_when": required_when(kind, field), "read_only": *field == "id", "append_only": matches!(*field, "reviews" | "scanned")})
+            "required_when": required_when(kind, field), "read_only": *field == "id", "append_only": matches!(*field, "reviews" | "scanned" | "prior_outcomes")})
     }).collect();
     let thread_id = cfg.map(|c| format!("{}{:0width$}", c.kind(OwnKind::Thread).prefix, 1, width=c.kind(OwnKind::Thread).width)).unwrap_or_else(|| "T001".into());
     let thread = json!({"id": thread_id, "title": "Example task", "status": "open"});

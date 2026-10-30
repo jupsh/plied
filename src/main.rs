@@ -118,6 +118,27 @@ enum Cmd {
         #[command(flatten)]
         who: WhoArgs,
     },
+    /// reopen a closed thread, keeping its outcome in prior_outcomes (FORMAT.md §3.3)
+    Reopen {
+        id: String,
+        /// what becomes of the outcome: conclusion (it no longer stands), rationale (its quoted support does not establish it), continued (it stands; the work goes on) or corrected (the same conclusion, to be restated)
+        #[arg(long)]
+        scope: String,
+        /// why, in words a later reader can check
+        #[arg(long)]
+        because: String,
+        /// the record that replaces the outcome, if one does
+        #[arg(long = "replaced-by", value_name = "REF")]
+        replaced_by: Option<String>,
+        /// the thread's status afterwards
+        #[arg(long, default_value = "open", value_parser = ["open", "waiting", "held", "parked"])]
+        status: String,
+        /// the revision you read (from `plied show`)
+        #[arg(long, value_name = "REV")]
+        expect: String,
+        #[command(flatten)]
+        who: WhoArgs,
+    },
     /// replace a record's whole file, checked like any write
     Replace {
         id: String,
@@ -760,6 +781,9 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             cmd_dispose(ctx, id, action, disposition, because, ref_.as_deref(), read, expect, who, json)
         }
         Cmd::Scanned { id, rev, on, because, expect, who } => cmd_scanned(ctx, id, rev, on, because, expect, who, json),
+        Cmd::Reopen { id, scope, because, replaced_by, status, expect, who } => {
+            cmd_reopen(ctx, id, scope, because, replaced_by.as_deref(), status, expect, who, json)
+        }
         _ => unreachable!(),
     }
 }
@@ -1826,6 +1850,57 @@ fn cmd_dispose(ctx: &Ctx, id: &str, action: &str, disposition: &str, because: &s
     } else {
         outln!("{id}: disposition recorded (rev {})", &rev[..12.min(rev.len())]);
     }
+    Ok(0)
+}
+
+/// Move a closed thread's outcome, its evidence revision and what it carried into `prior_outcomes`,
+/// and reopen it, in one write: the conclusion stays in the record that reached it (§3.3).
+#[allow(clippy::too_many_arguments)]
+fn cmd_reopen(ctx: &Ctx, id: &str, scope: &str, because: &str, replaced_by: Option<&str>, status: &str, expect: &str, who_args: &WhoArgs, json: bool) -> Res<i32> {
+    if !plied::records::PRIOR_SCOPES.contains(&scope) {
+        return Err(Fail::code(EXIT_USAGE, format!("--scope must be one of {}", plied::records::PRIOR_SCOPES.join(", "))));
+    }
+    if because.trim().is_empty() {
+        return Err(Fail::code(EXIT_USAGE, "--because needs the reason, in words a later reader can check"));
+    }
+    let who = who_of(who_args, true)?;
+    let who_s = who.to_string();
+    let mut mutate = |store: &Store, meta: &mut Map| -> Res<String> {
+        let r = store.get(id).filter(|r| r.is(OwnKind::Thread)).ok_or_else(|| Fail::new(format!("{id} is not a thread")))?;
+        let Some(Node::Map(outcome)) = meta.get("outcome").cloned().filter(|_| r.status() == Some(plied::records::ThreadStatus::Closed)) else {
+            return Err(Fail::new(format!("{id} is not closed with an outcome; there is nothing to reopen")));
+        };
+        let mut item = Map::new();
+        for key in ["quote", "ref"] {
+            if let Some(v) = outcome.get(key) {
+                item.insert(key.into(), v.clone());
+            }
+        }
+        // the evidence as it stood: its revision now, while it is still the one the outcome quoted
+        if let Some(source) = doc::text(&outcome, "ref").map(|f| plied::records::ref_id(&f)).and_then(|f| store.get(&f)) {
+            item.insert("rev".into(), Node::Str(source.rev.clone()));
+        }
+        if let Some(carries) = meta.shift_remove("carries") {
+            item.insert("carries".into(), carries);
+        }
+        item.insert("scope".into(), Node::Str(scope.into()));
+        item.insert("because".into(), Node::Str(because.into()));
+        item.insert("by".into(), Node::Str(who_s.clone()));
+        item.insert("at".into(), Node::Str(plied::records::stamp()));
+        if let Some(b) = replaced_by {
+            item.insert("replaced_by".into(), Node::Str(b.into()));
+        }
+        let mut prior: Vec<Node> = meta.get("prior_outcomes").map(|v| v.items().to_vec()).unwrap_or_default();
+        prior.push(Node::Map(item));
+        let index = prior.len() - 1;
+        meta.insert("prior_outcomes".into(), Node::List(prior));
+        meta.shift_remove("outcome");
+        meta.insert("status".into(), Node::Str(status.into()));
+        Ok(format!("reopened ({scope}); set status={status}; outcome kept as prior_outcomes[{index}]"))
+    };
+    let lib = ctx.library_opt()?;
+    let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, Some(because), &[], None, None, Some(&mut mutate))?;
+    print_updated(id, &rev, json, "reopened");
     Ok(0)
 }
 
