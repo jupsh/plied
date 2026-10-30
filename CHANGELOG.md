@@ -6,6 +6,13 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Add `show --refs`: the records a record references, one hop, with
+  provenance (kind, path, revision, referencing fields), a bounded preview,
+  a commitment's wording, and the commitments that apply to a referenced
+  thread or question. Unreadable references are listed only by the id and
+  field the record already shows. For a question this collects its raising
+  record, evidence and affected threads.
+  ([#84](https://github.com/jupsh/plied/issues/84))
 - Show linked work beside the frontier. A `[[sources]]` entry may list
   `show_fields`; `frontier --linked` and `show --linked` then list the
   linked records each plied record references from such sources, with

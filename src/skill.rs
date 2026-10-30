@@ -394,7 +394,9 @@ write; `plied guard range BASE HEAD` finds record changes on a code branch.
 
 ## Closing, questions, authority
 
-When authoring a question, use existing `options`, `raised`, `nodes`, `links`
+To weigh a pending question, `plied show Q01 --refs` collects its raising
+record, linked evidence and affected nodes, with their commitments, one hop;
+then read the originals it points to. When authoring a question, use existing `options`, `raised`, `nodes`, `links`
 and the body to state the choices and their consequences, what each approval
 authorizes or postpones, supporting evidence and remaining uncertainty. Attribute
 any recommendation to its author. Read the relevant originals; an orientation
