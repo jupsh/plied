@@ -6,9 +6,14 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Add a report-only reconciler example (`examples/reconcile`): it checks a
+  ledger of linked records against an independently defined, versioned
+  eligibility list, and reports missing, duplicate, ineligible and malformed
+  entries with their revisions. It uses `context` and `find --json`; no record or
+  contract changes. ([#33](https://github.com/jupsh/plied/issues/33))
 - Keep a thread's outcome when it is reopened. `plied reopen T --scope
   conclusion|rationale|continued|corrected --because …` moves the outcome
-  (quote, ref, the ref's revision, carries) into the append-only
+  (quote, ref, labels, the source revision at reopening, carries) into the append-only
   `prior_outcomes` list in one write. A write that clears or changes an
   outcome without keeping it is now refused (`outcome-kept`, exit 4). Records
   that referenced a thread before its conclusion or rationale was withdrawn

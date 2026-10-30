@@ -267,6 +267,13 @@ it needs its own threat model before it is built.
 **Report-only validators.** External programs that report diagnostics, for
 example numeric tolerances, which `check` merges into its results. A
 validator can report a problem. It can never approve a write or a gate.
+The [reconcile example](../examples/reconcile/README.md) is a first one,
+standing alone on `find --json`: it checks a ledger against an independently
+defined, versioned list of what should exist, the acceptance case for this
+design ([#33](https://github.com/jupsh/plied/issues/33)). Merging such
+reports into `check`, and a node-level "considered, nothing done"
+disposition, wait until cases like it show what existing records cannot
+represent.
 
 ## Not planned
 
