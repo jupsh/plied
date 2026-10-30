@@ -193,6 +193,13 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   never comes up. Run it before the action, and use a fresh action name
   (`run:fit-<date>`) each time, so an old review never stands in for a new
   run. A `because` says what you checked, not that you checked.
+- When the gate refuses the action's kind (exit 2: not one of
+  `checks.action_kinds`), don't stretch another kind to fit, and don't
+  drop the gate. Run `plied review <node> --action <the action>` without
+  `--gate` to see what would govern it. Hold the step and ask whoever
+  maintains `plied.toml` for the line the error gives (`error.detail.config`
+  with `--json`), for example with `plied send <node>`. Use a catch-all kind
+  only if the project has configured one.
 
 ### Controls before citing a null result
 
