@@ -347,7 +347,10 @@ fn thread(store: &Store, r: &Record, at: &str, p: &mut Report) {
     let outcome = m.get("outcome");
     if is(ThreadStatus::Closed) {
         match outcome {
-            Some(Node::Map(o)) => quote(store, at, p, o.get("quote"), o.get("ref"), "outcome"),
+            Some(Node::Map(o)) => {
+                quote(store, at, p, o.get("quote"), o.get("ref"), "outcome");
+                outcome_labels(store, at, p, o.get("labels"));
+            }
             _ => p.err("required", at, "outcome", "a closed node needs outcome (quote and ref)"),
         }
     } else if let Some(st) = status.filter(|_| outcome.is_some_and(|o| !o.is_empty())) {
@@ -634,6 +637,20 @@ fn dates(store: &Store, p: &mut Report) {
 fn prior_outcomes(store: &Store, r: &Record, at: &str, p: &mut Report) {
     for (i, item) in r.meta.get("prior_outcomes").map(Node::items).unwrap_or_default().iter().enumerate() {
         let Some(m) = item.map() else { continue };
+        if let Some(labels) = doc::set(m, "labels") {
+            let subject = format!("prior_outcomes[{i}].labels");
+            match labels {
+                Node::Map(facets) => {
+                    for (facet, label) in facets {
+                        if label.str().is_none() {
+                            let field = format!("{subject}.{facet}");
+                            p.err("field", at, &field, format!("{field} must be one label (text)"));
+                        }
+                    }
+                }
+                _ => p.err("field", at, &subject, format!("{subject} must be a mapping of facet to label")),
+            }
+        }
         for f in ["quote", "ref", "scope", "because"] {
             if doc::set(m, f).is_none() {
                 p.err("required", at, &format!("prior_outcomes[{i}].{f}"), format!("prior_outcomes[{i}] needs {f}"));
@@ -680,6 +697,35 @@ fn withdrawals(store: &Store, p: &mut Report) {
                     "{field} {id}: on {} UTC its outcome (“{}”) was withdrawn: {what}. Read it, then note whether this record relied on it",
                     when.format("%Y-%m-%d %H:%M"), crate::doc::take(quote, 120)));
             }
+        }
+    }
+}
+
+/// `outcome.labels` (§3.3): a writer-chosen label per configured facet. Its shape is checked like any
+/// field; its vocabulary only warns, so adopting or changing one never blocks a write.
+fn outcome_labels(store: &Store, at: &str, p: &mut Report, labels: Option<&Node>) {
+    let Some(labels) = labels.filter(|l| !l.is_empty()) else { return };
+    let Node::Map(labels) = labels else {
+        p.err("field", at, "outcome.labels", "outcome.labels must be a mapping of facet to label");
+        return;
+    };
+    let vocabulary = store.cfg.outcome_labels.as_ref();
+    if vocabulary.is_none() {
+        p.warn_on("label", at, "outcome.labels", "outcome.labels is set, but plied.toml has no [outcome_labels] to check it against");
+    }
+    for (facet, label) in labels {
+        let subject = format!("outcome.labels.{facet}");
+        let Some(label) = label.str() else {
+            p.err("field", at, &subject, format!("{subject} must be one label (text)"));
+            continue;
+        };
+        let Some(vocabulary) = vocabulary else { continue };
+        match vocabulary.get(facet) {
+            None => p.warn_on("label", at, &subject, format!("{facet:?} is not a facet in [outcome_labels] ({})", vocabulary.keys().cloned().collect::<Vec<_>>().join(", "))),
+            Some(allowed) if !allowed.iter().any(|a| a == label) => {
+                p.warn_on("label", at, &subject, format!("{subject}: {label:?} is not one of {}", allowed.join(", ")))
+            }
+            Some(_) => {}
         }
     }
 }
@@ -745,8 +791,11 @@ pub fn freshness(store: &Store, n: &Record) -> Vec<StaleCause> {
     let watched: Vec<_> = refs.iter()
         .filter(|(field, _)| !n.is_resolved() && *field != "parent" && !(n.is(OwnKind::Commitment) && *field == "nodes"))
         .collect();
+    // a scoped review covers the bytes it names: a later edit of that record makes it news again
+    let reviewed = n.scoped_reviews();
+    let covered = |r: &Record| reviewed.iter().any(|(id, rev)| *id == r.id && r.rev.starts_with(rev.as_str()));
     let mut causes = vec![];
-    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last)) {
+    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last) && !covered(r)) {
         let mentioned = store.mentions(&r.text);
         let named = mentioned.contains(&n.id);
         let mut via: Vec<_> = watched.iter().filter(|(_, id)| mentioned.contains(id)).map(|(field, id)| StaleLink { field: (*field).into(), id: id.clone() }).collect();

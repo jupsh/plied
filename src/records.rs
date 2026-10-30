@@ -112,6 +112,10 @@ pub const PRIOR_SCOPES: [&str; 4] = ["conclusion", "rationale", "continued", "co
 pub const LIST_FIELDS: [&str; 11] = ["waiting_on", "uses", "carries", "links", "nodes", "options", "cites", "reviews", "scanned", "governs", "prior_outcomes"];
 
 static HISTORY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^- (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC\b(.*)$").unwrap());
+/// A scoped review line's text after the time (§3.5): `<who>: reviewed ID@REV[, ID@REV…]`, then the
+/// line's end, `; ` or ` — `. Agent and session names may themselves contain `:`.
+static REVIEWED_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^ .*: reviewed ([^\s,;@]+@[0-9a-f]{8,64}(?:, [^\s,;@]+@[0-9a-f]{8,64})*)(?:$|; | — )").unwrap());
 static REF_END: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\s,;]").unwrap());
 static WORDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[a-z0-9]+").unwrap());
 
@@ -308,8 +312,19 @@ impl Record {
             .collect()
     }
 
+    /// The latest history line that is not a scoped review line (§3.5): a scoped review vouches only
+    /// for the linked records it names, so it moves nothing else on.
     pub fn last_update(&self) -> Option<DateTime<Utc>> {
-        self.history().into_iter().map(|(d, _)| d).max()
+        HISTORY_RE.captures_iter(&self.body).filter(|m| !REVIEWED_RE.is_match(&m[3])).filter_map(|m| parse_minute(&format!("{} {}", &m[1], &m[2]))).max()
+    }
+
+    /// The (id, revision prefix) pairs named by this record's scoped review lines, in history order.
+    pub fn scoped_reviews(&self) -> Vec<(String, String)> {
+        HISTORY_RE
+            .captures_iter(&self.body)
+            .filter_map(|m| REVIEWED_RE.captures(&m[3]).map(|c| c[1].to_string()))
+            .flat_map(|list| list.split(", ").filter_map(|item| item.rsplit_once('@').map(|(id, rev)| (id.to_string(), rev.to_string()))).collect::<Vec<_>>())
+            .collect()
     }
 
     /// Date (and time) of a linked record, when its source declares them.

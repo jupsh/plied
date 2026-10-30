@@ -310,9 +310,10 @@ impl<'a> Writer<'a> {
                 what = if assignments.is_empty() { String::new() } else { apply_assignments(&mut meta, assignments)? };
             }
             if let Some(m) = mutate.as_deref_mut() {
+                // what `mutate` did comes first, so a scoped review leads its line (§3.5)
                 let w = m(store, &mut meta)?;
                 if !w.is_empty() {
-                    what = w;
+                    what = if what.is_empty() { w } else { format!("{w}; {what}") };
                 }
             }
             if let Some(note) = note {
@@ -345,8 +346,10 @@ fn outcome_dropped(old: &Record, new: &Record) -> Option<String> {
     let kept = |r: &Record| r.meta.get("prior_outcomes").map(Node::items).unwrap_or_default().to_vec();
     let (was, now) = (kept(old), kept(new));
     let appended = now.get(was.len()..).unwrap_or_default();
+    let labels = old.meta.get("outcome").and_then(Node::map).and_then(|m| m.get("labels"));
     let keeps = appended.iter().filter_map(Node::map).any(|m| {
         (crate::doc::text(m, "quote").unwrap_or_default(), crate::doc::text(m, "ref").unwrap_or_default()) == before
+            && m.get("labels") == labels
     });
     (!keeps).then(|| "this write would clear or change outcome without keeping it in prior_outcomes; use `plied reopen`".to_string())
 }
