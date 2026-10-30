@@ -595,12 +595,14 @@ fn stale(store: &Store, p: &mut Report) {
     for n in store.own(None) {
         let Some(last) = n.last_update() else { continue };
         let refs: HashSet<String> = n.refs().into_iter().map(|(_, rid)| rid).collect();
-        // `parent` is organisational (§3.3): news about a group is the group's to review, not each child's.
+        // `parent` is organisational (§3.3), and a commitment's `nodes` attaches its obligation (§12).
+        // Neither makes news about that target a review of every child or attached commitment.
+        // Explicit evidence fields still count, even when they name the same target as `nodes`.
         // A resolved record's links are history: only a record naming it directly (perhaps to reopen it) counts.
         let mut watch: HashSet<String> = if n.is_resolved() {
             HashSet::new()
         } else {
-            n.refs().into_iter().filter(|(f, _)| *f != "parent").map(|(_, rid)| rid).collect()
+            n.refs().into_iter().filter(|(f, _)| *f != "parent" && !(n.is(OwnKind::Commitment) && *f == "nodes")).map(|(_, rid)| rid).collect()
         };
         watch.insert(n.id.clone());
         let (mut by_name, mut by_links) = (vec![], vec![]);
