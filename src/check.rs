@@ -242,11 +242,32 @@ fn quote(store: &Store, at: &str, p: &mut Report, quote: Option<&Node>, source: 
         p.err("required", at, &format!("{what}.quote"), format!("{what}: the quotation is required"));
         return;
     };
+    let source_node = source;
     let Some(source) = source.filter(|s| !s.is_empty()).map(node_ref) else {
         p.err("required", at, &format!("{what}.source"), format!("{what}: the record it is quoted from is required"));
         return;
     };
     let Some(t) = store.get(&source) else { return }; // reported as a broken reference
+    // a source that opts in reads a `#Heading` locator as a selector: the section, or an error, never
+    // a silent fallback to the whole file (§3.4)
+    let raw = source_node.and_then(Node::scalar).unwrap_or_default();
+    let selector = crate::records::ref_locator(&raw).strip_prefix('#').map(str::trim).filter(|_| t.source().is_some_and(|s| s.heading_locators));
+    if let Some(heading) = selector {
+        match crate::summary::section(&t.body, heading) {
+            Ok(section) => {
+                if !textmatch::find_quote(&q, &section) {
+                    p.err("quote", at, what, format!("{what} is not verbatim in the section “{heading}” of {source}; the locator narrows the match to that section"));
+                }
+            }
+            Err(crate::summary::NoSection::Missing) => {
+                p.err("quote", at, what, format!("{what}: {source} has no heading “{heading}”, and a heading locator never falls back to the whole file"))
+            }
+            Err(crate::summary::NoSection::Ambiguous(n)) => {
+                p.err("quote", at, what, format!("{what}: {source} has {n} headings “{heading}”, so the locator names no one section"))
+            }
+        }
+        return;
+    }
     if !textmatch::find_quote(&q, &t.text) {
         let near = textmatch::closest(&q, &t.text, 60).map(|n| format!(" (nearest: “{n}…”)")).unwrap_or_default();
         p.err("quote", at, what, format!("{what} is not verbatim in {source}{near}; quote the record exactly, or record the wording first"));

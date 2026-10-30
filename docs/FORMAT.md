@@ -84,6 +84,7 @@ Regular expressions and templates MUST be checked when the file is loaded.
 | | `id_field`, `title_field` | string | `id`, `title` | frontmatter fields |
 | | `date`, `time`, `status`, `authority`, `scope` | string | none | frontmatter fields holding these |
 | | `scan_commitments`, `require_linked` | boolean | false | warnings, §8 |
+| | `locators` | `"headings"` | none | heading locators narrow quotations from this source (§3.4). Added in 0.12.0 |
 | `access` | `sealed` | list of strings | `[]` | sealed substrings (§9) |
 | | `sealed_file` | string | none | file of sealed substrings, one per line, `#` comments |
 | `search` | `include`, `exclude` | list of strings | `["<root>/**/*.md"]`, `[]` | search allowlist and denylist (§2.2) |
@@ -379,6 +380,29 @@ the text before the first whitespace, `,` or `;`, with trailing `.`, `:` and
 A locator is for readers only. It does not narrow anything: a quotation
 (§3.6) is matched against the referenced record's whole file text,
 frontmatter included, whatever the locator says.
+
+The one exception is opt-in, per source (since 0.12.0). When a source sets
+`locators = "headings"`, a locator that starts with `#` is a **heading
+selector** for quotations from that source's records: `outcome.ref` and a
+commitment's `made`. `outcome.ref: D134 #Results` matches `outcome.quote`
+against the section under D134's heading `Results` only:
+
+- The selector is the locator's text after `#`, trimmed. It equals a heading's
+  text exactly, case included. A heading is an ATX heading in the body, as
+  §3.7 defines one (headings in fenced or indented code are not headings),
+  and its text excludes the `#` run, surrounding whitespace and a closing run
+  of `#`. Frontmatter is never in a section.
+- The section is the lines after that heading, up to the next heading of the
+  same or a higher level, or the end of the body. It holds its subsections.
+- Every part of an ellipsis quotation must be in the section, in order.
+- No heading with that text, or more than one, is a `quote` error. A
+  selector never falls back to the whole file.
+- Other locators (`D134 §2`) on such a source, and every locator on any
+  other source, stay for readers only. References elsewhere (`links`,
+  `uses`, …) are unaffected.
+
+A store that sets `locators` should also set `requires = ">=0.12.0"`: an
+earlier plied refuses the key as unknown.
 
 ### 3.5 History
 
