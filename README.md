@@ -78,6 +78,14 @@ plied tree
 plied check
 ```
 
+`show` accepts both plied IDs and IDs from configured linked sources:
+
+```sh
+plied show T001                 # a plied thread, if this is its actual ID
+plied show D123                 # if a configured [[sources]] entry defines D123
+plied show T001 --summary       # bounded orientation; full show remains available
+```
+
 For an existing task, use the actual instructed node ID. Read `plied show
 ID --json` and `plied messages ID`, review `plied review ID`, then claim it
 with `plied claim ID`. Retain the revision that arrived with the text you

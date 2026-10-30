@@ -53,6 +53,7 @@ Two consequences follow:
 | Bounded revision cache | Implemented |
 | Action kinds | Implemented |
 | Typed dates | Implemented |
+| Explicit review evidence revisions | Implemented in 0.11.0 |
 | Hashed sources beyond PDFs | Proposed |
 | Relayed attribution | Proposed |
 
@@ -119,11 +120,12 @@ Items 6 and 7 followed:
    (§10). The store lock is specified as a protocol (§6), and sharing a
    runtime directory across machines is excluded.
 
-The scenarios raise two questions that the contract answers only
-negatively. Which evidence revisions did a review examine? And
-which artifact revision did an approval authorise? Today, neither a review
-nor an approval records a revision (§3.3, §12). Both are inputs to the
-operation and attestation designs below.
+The scenarios raise two separate questions: which evidence revisions did a
+review examine, and which artifact revision did an approval authorise?
+Optional review inputs now answer the first for explicitly supplied records
+(below). Approval still names a decision without binding the artifact's
+revision (§3.3, §12); that remains part of the operation and attestation
+designs below.
 
 **Format compatibility** (FORMAT.md, *Versions*). `[plied] format` (now 1)
 is the on-disk format, and a plied that doesn't know it refuses writes.
@@ -152,6 +154,29 @@ caller chose the right nodes, or that the gate was run at all.
 `frontier` lists them. They never block a write or a gate and never change a
 state. Nothing is sent anywhere. `expires` was left out: nothing yet needs
 it.
+
+**Explicit review evidence revisions** (§3.3, §8, §12). Since 0.11.0,
+`dispose --read ID@FULL_REV` can record the exact configured records a
+reviewer read. Each supplied revision is a full raw-byte SHA-256, compared
+against the store loaded under the write lock before accepting the
+disposition. Inputs are explicit: `--ref` remains unchecked prose, and no
+input is inferred from it or the reference graph. The lock coordinates plied
+writers; it does not provide snapshot isolation against arbitrary edits to
+linked files.
+
+`check` warns when an input of the latest disposition for an exact action
+changed or became unavailable, and `review` shows its current input status.
+An unrelated note does not clear that warning. A replacement disposition
+records a new review; an unpinned disposition remains explicitly unbound.
+These claims are advisory and do not change the exact-action gate. They
+neither attach commitments nor carry stale-by-link warnings.
+
+A pin identifies bytes without retaining them. `revs/` remains a disposable
+cache, including after `gc --all`; preserving the exact source bytes, for
+example in git, is still necessary. A raw-file SHA-256 is not a git object
+id: any historical retrieval must verify the recovered bytes against the
+pin. Pins for arbitrary files and approval-to-artifact binding remain
+separate proposed work.
 
 **Hashed sources beyond PDFs.** Datasets and other files can be cited by hash,
 like cleared papers, so that "computed from dataset version 7" can be checked.

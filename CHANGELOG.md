@@ -6,6 +6,39 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+Record format and JSON envelope remain at 1. The package version is 0.11.0;
+stores using `reviews.inputs` should set `requires = ">=0.11.0"`.
+
+- Fix a scan-review race: `scanned` now compares and captures the linked
+  source revision after acquiring the write lock, so a source changed while
+  waiting causes a conflict instead of an obsolete scan acknowledgement.
+- Add explicit evidence revisions to dispositions with repeatable
+  `dispose --read ID@FULL_SHA256`. Compare the whole read set under the
+  transaction lock, including pins appended through generic checked writes.
+  `check` and `review` report changed or unavailable inputs for each action's
+  latest disposition; ordinary notes do not clear those warnings. Gate
+  verdicts stay unchanged, unpinned reviews remain unbound, and pins retain
+  no bytes. ([#30](https://github.com/jupsh/plied/issues/30))
+- Compare a saved JSON check with `check --baseline FILE`. Match diagnostic
+  identities and causal source revisions, retain the full current verdict,
+  and refuse incompatible or no-longer-readable snapshots. JSON checks add
+  a versioned comparison basis. ([#79](https://github.com/jupsh/plied/issues/79))
+- Add opt-in `show --freshness`, `frontier --freshness` and
+  `check --group-stale`, reusing existing stale rules without acknowledging
+  reviews or suppressing diagnostics.
+  ([#81](https://github.com/jupsh/plied/issues/81),
+  [#83](https://github.com/jupsh/plied/issues/83))
+- Add `show --summary` for bounded orientation using existing metadata and
+  author-written summaries, with explicit omissions and full-read pointers.
+  ([#82](https://github.com/jupsh/plied/issues/82))
+- Make context's unverified filesystem writability explicit and explain
+  runtime writes independently of record-edit authority. Add participant
+  guidance, question-authoring guidance and configured-source ID discovery
+  examples to the installed skill/help.
+  ([#77](https://github.com/jupsh/plied/issues/77),
+  [#80](https://github.com/jupsh/plied/issues/80),
+  [#65](https://github.com/jupsh/plied/issues/65),
+  [#84](https://github.com/jupsh/plied/issues/84))
 - Exclude a commitment's `nodes` attachment from stale-by-link warnings.
   News about an attached thread or question no longer makes every attached
   commitment stale. Direct mentions, explicit evidence links and a question's

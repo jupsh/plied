@@ -319,6 +319,16 @@ required), `at` (text: `plied dispose` writes `YYYY-MM-DD HH:MM UTC`), `by`
 (text: the agent as claimed), `because` (prose) and `ref` (text: a reference
 by convention, not checked).
 
+Since 0.11.0, a review MAY also have `inputs`, a list of mappings with
+`record` (an exact configured record id, required) and `rev` (the full
+64-character lowercase SHA-256 of its raw bytes, required). Locators and
+arbitrary file paths are not input ids. Conflicting revisions for the same
+id and a pin to the commitment containing the review are errors. Identical
+duplicate pairs are allowed; `dispose` writes each pair once, in supplied
+order. These are evidence claims, not references: they neither attach
+commitments nor spread staleness. Older unpinned reviews remain valid.
+Stores using this field should set `requires = ">=0.11.0"`.
+
 A `scanned` item has `record` (ref to a linked record, required), `rev` (that
 record's revision as read, at least 8 lowercase hex digits, required; `plied
 scanned` writes all 64), `at`, `by` and `because`, as for `reviews`. Items
@@ -438,6 +448,23 @@ and are limited to 240 Unicode characters, ending in an ellipsis when
 shortened. `show` retains the full record, including evidence references and
 commitment information; the summary never replaces that text.
 
+`show --summary` offers a bounded orientation excerpt (§11.1); ordinary
+`show` continues to return the full record. Neither excerpt nor synopsis
+replaces exact commitment wording or relevant original evidence.
+
+The compact text includes current metadata (first 16 fields, values up to
+160 Unicode characters), the author-written synopsis (up to 800 characters)
+or a labelled first body-paragraph preview (up to 400), the last three
+parsed history entries (240 characters each), and at most 12 references,
+backlinks and commitment titles per section. It labels omissions and points
+to full `show`, `messages` and `review`; commitment wording is omitted.
+Whitespace is collapsed and shortened values end in an ellipsis. A body
+containing only History has no body preview. This is retrieval assistance,
+not a recommendation, review or completeness guarantee. With `--json`,
+the full record is preserved and `summary_view: {text, omitted: true,
+show_args: ["show", ID]}` is added; `text` is that orientation excerpt.
+`--freshness` can be combined with `--summary`.
+
 A summary is author-supplied prose. Extraction establishes neither accuracy
 nor freshness, approval, authority, evidence validity or applicability. It
 does not attach commitments, change their wording, pass a gate, or change a
@@ -544,6 +571,9 @@ earlier in the same log; anything else is an error.
 | `sessions/<session>.json` | private: hook state |
 | `index.json` | private: search index, refused when built under another access policy |
 | `hashcache.json`, `papers/`, `paper-img/` | private: literature caches |
+
+Review input pins (§3.3) do not extend this cache's retention. Keeping a hash
+after pruning identifies the historical bytes but cannot recover them (§8).
 
 ## 7. The view
 
@@ -657,10 +687,44 @@ resolved record went stale through its references too.)
 
 A node has at most two stale warnings, told apart by subject: `named` lists
 the newer records that mention the node's own id, and `links` those that
-mention only ids in its reference fields after these exclusions. All `named`
-warnings are reported before any `links` warning. A record that names the node is more likely to
-change it, while one that cites only its links usually needs just a note.
+mention only ids in its reference fields after these exclusions. All
+`named` warnings are reported before any `links` warning. A record that
+names the node is more likely to change it, while one that cites only its
+links usually needs just a note.
 (Before 0.7.0, a node had one stale warning, with no subject.)
+
+**Freshness presentation.** `show --freshness` and `frontier --freshness`
+expose these same stale causes for the displayed nodes, without running
+unrelated validation. They do not acknowledge, suppress or alter any
+diagnostic. `check --group-stale` additionally groups readable causes by
+newer source, with directly named nodes separate from nodes reached through
+their reference fields. Individual diagnostics and their identities remain
+unchanged. This is the one-hop stale heuristic, not §12 applicability.
+
+**Review inputs.** For each exact action on a commitment, only its last
+disposition in list order supplies the current evidence claim. `check`
+warns (`review-input`, subject `reviews[i].inputs[j]`) when a valid pinned
+input's current bytes differ, or the input is unavailable. Unavailable
+means missing or possibly sealed; plied does not inspect protected content
+to decide which. Earlier pins remain in append-only history. An ordinary
+note does not clear these warnings; a new disposition replaces the evidence
+claim for that exact action. An unpinned review is explicitly `unbound` in
+`review`, without a new warning on old stores. These advisory results do
+not alter the gate. A hash identifies bytes and retains none: `gc --all`
+can remove cached bytes without changing the comparison. Historical bytes
+must be retained separately, for example in git, and verified against the
+raw-file hash when recovered; that hash is not a git object id.
+
+**Diagnostic comparisons.** `check --baseline FILE` reads a saved
+`check --json` envelope and additionally reports added, persisting and
+resolved diagnostic/source entries (§11.1). It changes no record, review,
+warning, gate or current verdict, and attributes no change to an actor.
+Ordinary entries match by diagnostic identity; `stale` entries additionally
+match each causal source id and full current revision, and `review-input`
+entries additionally match the input id and current revision (null when
+unavailable). Thus another source or another edit cannot be hidden inside
+an existing warning with the same node and code. Messages never participate
+in matching. Counts of comparison entries need not equal diagnostic counts.
 
 ## 9. Access
 
@@ -694,6 +758,11 @@ program. What it covers:
 
 `plied.toml`, the `sealed_file` and the literature manifest are always read,
 since they define the policy.
+
+Saved check baselines are explicit caller-supplied inputs (§11.1). Their
+given and resolved paths obey seals. Comparison refuses a changed policy
+or saved evidence/locations no longer readable rather than echoing protected
+historical identities or hashes.
 
 ## 10. Literature
 
@@ -788,8 +857,26 @@ like any write. `plied dispose` appends one `reviews` item (§3.3) and never
 edits an earlier one. `plied scanned R --rev REV --on T --because …`
 appends one `scanned` item to thread `T`, after checking that `R` is a linked
 record of a source with `scan_commitments` and that its revision still starts
-with `REV`. Otherwise it is a conflict (exit 3, with `detail` naming `R`), so
-a review always covers what was read.
+with `REV`. A missing/unreadable record, an ineligible source or a target
+that is not a thread is an error (exit 1). A revision mismatch is a conflict
+(exit 3, with `detail` naming `R`), so a review covers what was read.
+
+The source lookup and revision comparison for `scanned` occur after taking
+the write lock, against that transaction's store. A source changed while
+waiting for the lock conflicts instead of recording an obsolete scan.
+
+`dispose --read ID@REV` is repeatable and records the exact review inputs
+the caller actually judged, using full raw-byte hashes from those reads.
+It never infers pins from `--ref`, from the graph or from a fresh read at
+write time. Syntax errors, conflicting duplicate pins and a self-pin are
+usage errors (exit 2). Every supplied input is compared under the transaction
+lock before appending the disposition. A changed or unavailable input
+refuses the whole write with exit 3 and the usual conflict detail, naming
+that input (`current` null when unavailable). Generic checked writes that
+append pinned reviews enforce the same input preconditions. The lock
+coordinates plied writers; it is not snapshot isolation against arbitrary
+edits of linked files. Approval-to-artifact revision binding is separate
+and remains unimplemented.
 
 All checked record writes, including `set` and `replace`, MUST preserve the
 existing `reviews` and `scanned` entries as an unchanged prefix in list
@@ -924,7 +1011,7 @@ string or null. This also appears on full thread records returned by `find`
 | `view` | `{path}`; with `--print` `{path, text}`; with `--check` `{path, current}`, exit 1 when not current |
 | `recover` | `{recovered: "finished", "undone" or null, files}` |
 | `gc` | `{removed}` |
-| `check` | `{diagnostics, errors, warnings, records, linked, config}` |
+| `check` | `{diagnostics, errors, warnings, records, linked, config, comparison_basis}`; with `--baseline FILE`, also `comparison`; with `--group-stale`, also `stale_groups` (below) |
 | `claim` | a claim (§6), plus `commitments` as in `show`, empty unless the node is a plied thread or question (added in 0.6.0). Without `--json`, `claim` lists them too. `--ttl` is a positive number of minutes; 0 or absent uses `messages.lease_minutes`, and a negative value is a usage error (exit 2) |
 | `release` | `{released}` |
 | `who` | claims, each with `expires` |
@@ -933,7 +1020,7 @@ string or null. This also appears on full thread records returned by `find`
 | `inbox` | `{messages, marked_read}`; each message carries `delivered`, `read`, `acked` (times or null) |
 | `ack` | `{acknowledged}` |
 | `messages` | the node's events, in log order. The node must name a record, as for `send`; an unknown node is an error (exit 1), never an empty conversation. A node is a record id, never a path: a log is only ever the one file `<root>/messages/<node>.jsonl` for that id |
-| `review` | `{commitments: [{id, rev, state, wording, chains, reviews, governs, governs_action}], gate}`; `gate` is null without `--gate`, else `{action, passed, reasons}`. `governs` is the commitment's list, or null; `governs_action` is false when the gate leaves the commitment out for `--action` (§12), and true without `--action` (both added in 0.7.0) |
+| `review` | `{commitments: [{id, rev, state, wording, chains, reviews, governs, governs_action, input_reviews}], gate}`; `gate` is null without `--gate`, else `{action, passed, reasons}`. `governs` is the commitment's list, or null; `governs_action` is false when the gate leaves the commitment out for `--action` (§12), and true without `--action` (both added in 0.7.0). `input_reviews` was added in 0.11.0 (below) |
 | `index` | `{records, pages, policy}` |
 | `search`, `lit search` | `[{key, kind, path, score, snippet, stale, ocr}]`; `-n` caps how many are returned, and `-n 0` returns none |
 | `lit list` | `[{id, file, pages}]` |
@@ -946,6 +1033,61 @@ string or null. This also appears on full thread records returned by `find`
 
 Fields may be added to results in a later version with the same envelope
 version. Fields are never removed or retyped without a new one.
+
+Since 0.11.0, `show --freshness` adds `freshness` to its record, and
+`frontier --freshness` adds `freshness` to every displayed queue,
+unscheduled, question and date row. An array item is
+`{record, rev, subject, mentions, via}`: the readable newer source id and
+full raw-byte revision, `subject` (`named` or `links`), sorted unique ids
+mentioned, and sorted unique reference edges `via: [{field, id}]`. A
+direct mention wins when the source also mentions a reference. Arrays are
+complete, ordered named before links then by source id; they are empty
+for a linked record or a node with no history. They expose only the loaded
+access-filtered store. Actor filtering still applies to every frontier
+section.
+
+`check --group-stale` adds
+`stale_groups: [{record, rev, named, links}]`, in source-id order. Each
+affected node in `named` or `links` is `{id, path, mentions, via}`, in
+node-id order, with relative path and the same edges as freshness. These
+arrays are not truncated. `--errors-only` produces an empty groups array.
+The ordinary `diagnostics` array is retained in full.
+
+`review` includes `input_reviews` on each commitment, one item per latest
+exact action (or only the requested action), ordered by action text:
+`{action, review_index, status, inputs: [{record, rev, status, current}]}`.
+Indexes are zero-based append-only list indexes. Overall status is
+`invalid`, `unavailable`, `changed`, `current` or `unbound` in that priority;
+an input status is `invalid`, `unavailable`, `changed` or `current`.
+`current` is the readable full revision or null. Invalid hand-written
+items retain their list position; a malformed mapping has empty record and
+revision strings, `invalid` status and null current. These statuses report
+byte comparisons, never the scientific adequacy of evidence or a gate
+verdict. Old unpinned reviews are `unbound`.
+
+Every JSON check now supplies
+`comparison_basis: {v: 1, warnings, policy, entries}`. `warnings` records
+whether warnings were requested; `policy` is the access-policy digest.
+An entry is `{level, code, where, subject?, source?}`. `source`, when
+present, is `{record, rev}` with the full current SHA-256 or null for
+unavailable review evidence. Stale diagnostics have one entry per causal
+source; review-input warnings have one per input; other diagnostics have
+one identity entry. Entries are unique, sorted lexicographically by level,
+code, location, subject and source, independent of message wording.
+
+Save the entire envelope, for example `plied check --json > baseline.json`,
+then use `plied check --baseline baseline.json --json`. The full current
+report and exit code remain authoritative. `comparison` holds
+`{added, persisting, resolved}`, each an array of entries in the same
+order. Historical messages are never echoed. The file is resolved from the
+effective working directory (including `-C`), may be outside the checkout,
+and must not be sealed by its given or resolved path. An unsupported or
+incomplete baseline, a different warning scope or policy, or historical
+evidence/locations no longer readable is refused with exit 2; capture a
+fresh baseline. Refusal does not print hidden saved identities or hashes.
+A sealed input path is a policy error (exit 1). Baselines from versions
+without `comparison_basis` must be recaptured. Baseline files are ordinary
+caller-owned snapshots; plied does not create, authenticate or retain them.
 
 **`plied find`** takes a JSON object. Each key is a field (dotted for nested
 ones) and each value a condition; all must hold. A plain value matches equal
@@ -965,7 +1107,7 @@ guidance rather than an additional write protocol; all writes keep the
 per-record revision requirements above.
 
 `context [NODE]` returns `{version, configured, canonical, here, runtime,
-configuration, branch, canonical_branch, write_blockers, identity,
+runtime_access, configuration, branch, canonical_branch, write_blockers, identity,
 vocabularies, linked_sources, capabilities, node}`. `configuration` holds
 `{path, format, requires, compatible}`; `identity` holds `{agent, session}`
 using the normal identity overrides. `vocabularies` holds `actors`,
@@ -974,6 +1116,14 @@ using the normal identity overrides. `vocabularies` holds `actors`,
 paths or hashes. `capabilities` holds the build's `pdf` boolean and lists of
 `record_kinds`, `discovery` commands and `guidance` entry points. `pdf: true`
 describes the build; it does not promise that a pdfium shared library is installed.
+
+Since 0.11.0, `runtime_access` is null without configuration, otherwise
+`{writability: "unverified", reason}`. Ordinary context performs no filesystem
+write probe. `write_blockers` describes logical branch/configuration blockers,
+not a promise of writable storage. Claims, messages, releases, record writes
+and caches require runtime writes even without authority to edit tracked
+records; actual mutations retain their precise filesystem failures. Filesystem
+permission confers no project authority.
 
 For a readable named record, `node` is `{id, show_args, messages_args,
 claims, commitments}`; otherwise it is null. A named missing or sealed
@@ -992,6 +1142,10 @@ example_records, constraints, contract}`. Each field descriptor holds
 required_when, read_only, append_only}`. Types are `string`, `date`,
 `positive_integer`, `mapping` or `list`; nested page properties use `integer`.
 `properties` is null or a list of `{name, type, values, required, references}`.
+Since 0.11.0, property descriptors may additionally have `items` and nested
+`properties`. For `reviews.inputs`, these describe mapping items with a
+required string `record` and a required `sha256` `rev` of `length: 64`.
+These ids describe evidence, not graph edges.
 `values` is null or the allowed vocabulary; list values describe its items.
 `references` is null, an own-kind list, or an object with `own` and/or
 `linked_sources` kind lists. `id` is required in a file but generated by
@@ -1060,5 +1214,8 @@ change this verdict; `check` reports them separately.
   means each applicable commitment was reviewed for this action. It does not
   mean the obligation was fulfilled, or that the evidence a review relied on
   is unchanged since.
+- Explicit review inputs (§3.3, §8) expose that separate evidence claim.
+  Changed, missing or inaccessible inputs are advisory and leave this
+  exact-action gate verdict unchanged. A review without pins is unbound.
 - The gate examines only the nodes it is given. It cannot tell whether the
   caller named the right nodes, or whether the action it gates ever runs.

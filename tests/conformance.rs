@@ -15,6 +15,50 @@ fn two_threads() -> Proj {
     p
 }
 
+#[test]
+fn a_baseline_tracks_sources_beyond_the_human_stale_preview() {
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "Current"]);
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir(p.path().join("log")).unwrap();
+    for n in 1..=8 {
+        std::fs::write(p.path().join(format!("log/D{n:03}.md")), format!("---\nid: D{n:03}\ntitle: News\ndate: 2999-01-01\n---\nT001 changes.\n")).unwrap();
+    }
+    let before = envelope(&p.run(&["check", "--json"]));
+    let baseline = p.path().join("baseline.json");
+    std::fs::write(&baseline, before.to_string()).unwrap();
+    std::fs::write(p.path().join("log/D009.md"), "---\nid: D009\ntitle: More news\ndate: 2999-01-01\n---\nT001 changes.\n").unwrap();
+    let after = envelope(&p.run(&["check", "--baseline", baseline.to_str().unwrap(), "--json"]));
+    assert_eq!(before["result"]["diagnostics"], after["result"]["diagnostics"], "wording is bounded and cannot identify every new source");
+    assert_eq!(after["result"]["comparison"]["added"].as_array().unwrap().len(), 1);
+    assert_eq!(after["result"]["comparison"]["added"][0]["source"]["record"], "D009");
+}
+
+// -------------------------------------------------------- §§3.3, 8, 11, 12 review inputs
+
+#[test]
+fn review_input_pins_compare_bytes_without_changing_the_exact_action_gate() {
+    let p = two_threads();
+    p.evidence("E001", "", "Review evidence before a run.");
+    p.evidence("E002", "", "Known positive detected.");
+    p.ok(&["new", "commitment", "--title", "Evidence review", "wording=Review evidence before a run.", "made=E001", "nodes=T001"]);
+    let input = format!("E002@{}", p.rev("E002"));
+    let before = p.rev("P01");
+    p.ok(&["dispose", "P01", "--action", "run:one", "--disposition", "satisfied", "--because", "Known positive read", "--read", &input, "--expect", &before]);
+    p.edit("evidence/E002.md", "Known positive detected.", "Known positive missed.");
+    let review = p.run(&["review", "T001", "--action", "run:one", "--gate", "--json"]);
+    assert_eq!(review.status.code(), Some(0));
+    let claim = &envelope(&review)["result"]["commitments"][0]["input_reviews"][0];
+    assert_eq!(claim["status"], "changed");
+    let checked = envelope(&p.run(&["check", "--json"]));
+    assert!(checked["result"]["diagnostics"].as_array().unwrap().iter().any(|d| d["code"] == "review-input" && d["subject"] == "reviews[0].inputs[0]"));
+    let current = p.rev("P01");
+    let rejected = p.run(&["dispose", "P01", "--action", "run:two", "--disposition", "satisfied", "--because", "Old read", "--read", &input, "--expect", &current]);
+    assert_eq!(rejected.status.code(), Some(3));
+    assert_eq!(p.rev("P01"), current);
+    assert_eq!(gate(&p, "T001", "run:two"), Some(6));
+}
+
 // ------------------------------------------------------------------- §3.7 optional synopsis
 
 #[test]
@@ -872,6 +916,34 @@ fn frontier_lists_open_threads_in_no_queue() {
 }
 
 // --------------------------------------------------------------------------- §8 stale
+
+#[test]
+fn freshness_and_grouping_observe_a_preexisting_store_without_reviewing_it() {
+    let p = Proj::new();
+    // Frozen format-1 bytes from before these presentation options existed.
+    std::fs::write(p.path().join("plied.toml"), "[plied]\nformat = 1\nrequires = \">=0.10.0\"\n\n[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n").unwrap();
+    for dir in ["plied/threads", "plied/commitments", "log"] {
+        std::fs::create_dir_all(p.path().join(dir)).unwrap();
+    }
+    std::fs::write(p.path().join("plied/threads/T001.md"), "---\nid: T001\ntitle: Existing task\nstatus: open\nactor: alice\nnext: 1\n---\n## History\n- 2000-01-01 00:00 UTC alice: created\n").unwrap();
+    std::fs::write(p.path().join("plied/commitments/P01.md"), "---\nid: P01\ntitle: Existing obligation\nwording: Check before every run.\nmade: D000\nstate: open\nnodes: T001\n---\n## History\n- 2000-01-01 00:00 UTC alice: created\n").unwrap();
+    std::fs::write(p.path().join("log/D000.md"), "---\nid: D000\ntitle: Promise\ndate: 1999-01-01\n---\nCheck before every run.\n").unwrap();
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: News\ndate: 2001-01-01\n---\nT001 may change, and so may D000.\n").unwrap();
+    let before = envelope(&p.run(&["check", "--json"]));
+    assert_eq!(before["result"]["errors"], 0);
+    assert_eq!(gate(&p, "T001", "run:legacy"), Some(6));
+    let show = envelope(&p.run(&["show", "T001", "--summary", "--freshness", "--json"]));
+    assert_eq!(show["result"]["summary_view"]["omitted"], true);
+    assert_eq!(show["result"]["freshness"][0]["record"], "D001");
+    let frontier = envelope(&p.run(&["frontier", "--freshness", "--json"]));
+    assert_eq!(frontier["result"]["queues"]["alice"][0]["freshness"], show["result"]["freshness"]);
+    let grouped = envelope(&p.run(&["check", "--group-stale", "--json"]));
+    assert_eq!(grouped["result"]["diagnostics"], before["result"]["diagnostics"]);
+    assert_eq!(grouped["result"]["stale_groups"][0]["named"][0]["id"], "T001");
+    assert_eq!(grouped["result"]["stale_groups"][0]["links"][0]["id"], "P01");
+    assert_eq!(gate(&p, "T001", "run:legacy"), Some(6));
+    assert_eq!(envelope(&p.run(&["check", "--json"]))["result"]["diagnostics"], before["result"]["diagnostics"]);
+}
 
 #[test]
 fn attachment_alone_does_not_make_a_commitment_stale_but_naming_it_does() {

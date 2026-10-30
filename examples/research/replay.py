@@ -41,8 +41,13 @@ def replay(binary, destination):
     def gate(node, action, expected):
         run("review", node, "--action", action, "--gate", expected=expected)
 
-    def dispose(record, action, disposition, reason, ref):
-        change("dispose", record, "--action", action, "--disposition", disposition, "--because", reason, "--ref", ref)
+    def dispose(record, action, disposition, reason, ref, read=()):
+        pins = []
+        for input_id in read:
+            current = run("show", input_id)
+            print(current["text"])
+            pins.extend(("--read", f"{input_id}@{current['rev']}"))
+        change("dispose", record, "--action", action, "--disposition", disposition, "--because", reason, "--ref", ref, *pins)
 
     run("init")
     with (destination / "plied.toml").open("a") as config:
@@ -66,7 +71,7 @@ def replay(binary, destination):
     evidence("E003-recovery.md")
     change("note", "T001", "Recovery recorded in E003: replacement sensor, known positive 6, dose 10; partial run 01 remains excluded.")
     gate("T002", "interpret:run-02", 6)
-    dispose("P01", "interpret:run-02", "satisfied", "E003 positive 6 >= 5 and dose 10 within 9..11 meet E001; run 01 is excluded from the completed comparison", "E003")
+    dispose("P01", "interpret:run-02", "satisfied", "E003 positive 6 >= 5 and dose 10 within 9..11 meet E001; run 01 is excluded from the completed comparison", "E003", read=("E001", "E003"))
     gate("T002", "interpret:run-02", 0)
     evidence("E004-comparison.md")
     run("new", "question", "--title", "Does this generalise beyond these conditions?", "raised=E004", "nodes=[T001, T002, T003]")
@@ -92,9 +97,11 @@ def replay(binary, destination):
     path = destination / "evidence" / "E003-recovery.md"
     original = path.read_bytes()
     try:
-        path.write_text("---\nid: E003\ntitle: Changed evidence\n---\nThe known positive was missed.\n")
+        path.write_bytes(original + b"\n2026-10-29 00:00 UTC correction: the known positive was missed.\n")
         gate("T002", "interpret:run-02", 0)
-        print("LIMIT: the gate still passes after reviewed evidence changes.")
+        checked = run("check")
+        assert any(d["code"] == "review-input" and "E003" in d["message"] for d in checked["diagnostics"]), checked
+        print("ADVISORY: reviewed evidence changed; the exact-action gate still passes.")
     finally:
         path.write_bytes(original)
     run("check")
