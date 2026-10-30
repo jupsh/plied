@@ -638,16 +638,17 @@ fn outcome_labels(store: &Store, at: &str, p: &mut Report, labels: Option<&Node>
         p.err("field", at, "outcome.labels", "outcome.labels must be a mapping of facet to label");
         return;
     };
-    let Some(vocabulary) = store.cfg.outcome_labels.as_ref() else {
+    let vocabulary = store.cfg.outcome_labels.as_ref();
+    if vocabulary.is_none() {
         p.warn_on("label", at, "outcome.labels", "outcome.labels is set, but plied.toml has no [outcome_labels] to check it against");
-        return;
-    };
+    }
     for (facet, label) in labels {
         let subject = format!("outcome.labels.{facet}");
         let Some(label) = label.str() else {
             p.err("field", at, &subject, format!("{subject} must be one label (text)"));
             continue;
         };
+        let Some(vocabulary) = vocabulary else { continue };
         match vocabulary.get(facet) {
             None => p.warn_on("label", at, &subject, format!("{facet:?} is not a facet in [outcome_labels] ({})", vocabulary.keys().cloned().collect::<Vec<_>>().join(", "))),
             Some(allowed) if !allowed.iter().any(|a| a == label) => {
@@ -719,8 +720,11 @@ pub fn freshness(store: &Store, n: &Record) -> Vec<StaleCause> {
     let watched: Vec<_> = refs.iter()
         .filter(|(field, _)| !n.is_resolved() && *field != "parent" && !(n.is(OwnKind::Commitment) && *field == "nodes"))
         .collect();
+    // a scoped review covers the bytes it names: a later edit of that record makes it news again
+    let reviewed = n.scoped_reviews();
+    let covered = |r: &Record| reviewed.iter().any(|(id, rev)| *id == r.id && r.rev.starts_with(rev.as_str()));
     let mut causes = vec![];
-    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last)) {
+    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last) && !covered(r)) {
         let mentioned = store.mentions(&r.text);
         let named = mentioned.contains(&n.id);
         let mut via: Vec<_> = watched.iter().filter(|(_, id)| mentioned.contains(id)).map(|(field, id)| StaleLink { field: (*field).into(), id: id.clone() }).collect();

@@ -80,6 +80,9 @@ pub struct Source {
     pub scope_field: Option<String>,
     pub scan_commitments: bool,
     pub require_linked: bool,
+    /// frontmatter fields `frontier --linked` and `show --linked` show for this source's records
+    /// that a plied record references (FORMAT.md §4); empty: the source takes no part
+    pub show_fields: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -200,6 +203,30 @@ impl Config {
         let kinds = self.action_kinds.as_ref()?;
         let kind = Config::action_kind(action);
         (!kinds.iter().any(|k| k == kind)).then(|| format!("action {action:?} has kind {kind:?}, not one of checks.action_kinds ({})", kinds.join(", ")))
+    }
+
+    /// The usage error for an action `checks.action_kinds` does not allow, if it does not. Adding a
+    /// kind is a change to plied.toml, which the caller may have no authority to make, so the
+    /// refusal says exactly what to ask for, in text and in `detail` (FORMAT.md §12).
+    pub fn action_refusal(&self, action: &str) -> Option<Fail> {
+        let problem = self.action_problem(action)?;
+        let kinds = self.action_kinds.as_deref().unwrap_or_default();
+        let kind = Config::action_kind(action);
+        let mut proposed = kinds.to_vec();
+        proposed.push(kind.to_string());
+        let line = format!("action_kinds = {}", T::from(proposed.clone()));
+        let msg = format!(
+            "{problem}. Action kinds are the project's vocabulary, set under [checks] in {}. Until that file allows this kind, \
+             plied can neither gate this action nor record a disposition for it. If no listed kind fits the step, ask whoever \
+             maintains the file for:\n  {line}\n`plied review <node> --action {action}` without --gate shows which commitments \
+             would govern it.",
+            self.path.display()
+        );
+        let detail = serde_json::json!({
+            "action": action, "kind": kind, "action_kinds": kinds,
+            "config": {"path": self.path, "key": "checks.action_kinds", "proposed": proposed},
+        });
+        Some(Fail::code(crate::error::EXIT_USAGE, msg).with_detail(detail))
     }
 
     pub fn kind(&self, kind: OwnKind) -> &Kind {
@@ -412,7 +439,7 @@ fn template(t: Option<String>, what: &str, args: &[(&str, Arg)]) -> Res<Option<S
 const KEYS: &[(&str, &[&str])] = &[
     ("plied", &["format", "requires", "root", "canonical_branch"]),
     ("ids", &["thread", "commitment", "question"]),
-    ("sources", &["name", "glob", "id", "id_field", "title_field", "date", "time", "status", "authority", "scope", "scan_commitments", "require_linked"]),
+    ("sources", &["name", "glob", "id", "id_field", "title_field", "date", "time", "status", "authority", "scope", "scan_commitments", "require_linked", "show_fields"]),
     ("access", &["sealed", "sealed_file"]),
     ("search", &["include", "exclude"]),
     ("literature", &["manifest", "list", "file_field", "hash_field", "id_field", "id_from_file", "pdf_dir", "text_dir", "page_file", "ocr_marker", "image_command", "image_path"]),
@@ -508,6 +535,13 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
             scope_field: get_str(s, "scope", None, &w)?,
             scan_commitments: get_bool(s, "scan_commitments", false, &w)?,
             require_linked: get_bool(s, "require_linked", false, &w)?,
+            show_fields: {
+                let fields = get_strs(s, "show_fields", None, &w)?.unwrap_or_default();
+                if fields.iter().any(String::is_empty) {
+                    return Err(err(format!("{w}show_fields: a field name cannot be empty")));
+                }
+                fields
+            },
         }));
     }
 
