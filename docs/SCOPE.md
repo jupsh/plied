@@ -143,8 +143,10 @@ evidence survives. Without the cached revision, a conflict is still refused,
 just without a diff.
 
 **Action kinds** (§12). An action is `kind` or `kind:instance`. With
-`checks.action_kinds` set, `review` and `dispose` refuse an unknown kind
-(exit 2). `check` only warns about reviews recorded before the vocabulary
+`checks.action_kinds` set, `review --gate` and `dispose` refuse an unknown kind
+(exit 2). A read-only `review --action` still previews its commitments and
+notes the refusal, so the caller can request the exact configuration change.
+`check` only warns about reviews recorded before the vocabulary
 existed. A commitment can name the kinds it `governs`, which needs the
 vocabulary, so that a misspelt kind is an error rather than an open gate. The gate still compares whole names. It does not check that the
 caller chose the right nodes, or that the gate was run at all.
@@ -234,6 +236,28 @@ itself is sealed; and how to keep the withheld manifest from revealing the
 identifiers it withholds. Output formats and redaction rules are built
 outside plied.
 
+The design is accepted only when it meets these requirements, gathered from
+cases where a sceptic is handed the raw ledger rather than a summary
+([#37](https://github.com/jupsh/plied/issues/37)):
+
+- **The bytes that were judged, not only the current ones.** Where a
+  review pinned what it examined (`reviews.inputs`, FORMAT.md §3.3), the
+  closure carries those exact bytes with their hashes, verified against the
+  raw-file SHA-256, or says explicitly that the historical bytes are
+  unavailable. A pin identifies bytes; it does not recover them, so the
+  closure must not present the current revision as the one examined.
+- **Who supplied each file, apart from who is named as its author.** The
+  closure attributes the claimed author, the supplier or relay (the author,
+  a platform, a third party) and any verification of those claims
+  separately. A file supplied by a platform must not acquire the author's
+  attribution because it travelled with the author's work. This sits next
+  to relayed attribution (above), which should be designed with it.
+- **A withheld manifest that leaks nothing.** The closure says that it is
+  incomplete without revealing protected ids, paths or content hashes. Even
+  counts and relationships between withheld items can disclose; the design
+  states what is safe to reveal, and its acceptance tests check exactly
+  that, for sealed evidence and for references into sealed records.
+
 **External reference helpers.** References such as `gh:org/repo#4821` or
 `repo:satellite/T004` would be resolved by optional helper programs, like
 git's credential and remote helpers. This brings program execution and
@@ -243,6 +267,13 @@ it needs its own threat model before it is built.
 **Report-only validators.** External programs that report diagnostics, for
 example numeric tolerances, which `check` merges into its results. A
 validator can report a problem. It can never approve a write or a gate.
+The [reconcile example](../examples/reconcile/README.md) is a first one,
+standing alone on `find --json`: it checks a ledger against an independently
+defined, versioned list of what should exist, the acceptance case for this
+design ([#33](https://github.com/jupsh/plied/issues/33)). Merging such
+reports into `check`, and a node-level "considered, nothing done"
+disposition, wait until cases like it show what existing records cannot
+represent.
 
 ## Not planned
 

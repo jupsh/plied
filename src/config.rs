@@ -6,6 +6,7 @@
 //! different policy. The file is part of the trust boundary: `literature.image_command` runs
 //! whatever it names.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -81,6 +82,9 @@ pub struct Source {
     pub require_linked: bool,
     /// `locators = "headings"`: a `#Heading` locator narrows quotation matching to that section (§3.4)
     pub heading_locators: bool,
+    /// frontmatter fields `frontier --linked` and `show --linked` show for this source's records
+    /// that a plied record references (FORMAT.md §4); empty: the source takes no part
+    pub show_fields: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -165,6 +169,9 @@ pub struct Config {
     pub lease_minutes: i64,
     /// action kinds a review may name (`kind` or `kind:instance`); None: any
     pub action_kinds: Option<Vec<String>>,
+    /// `[outcome_labels]`: facet → the labels a closed thread's `outcome.labels` may give it (§3.3);
+    /// None: no vocabulary, so any label is a warning
+    pub outcome_labels: Option<BTreeMap<String, Vec<String>>>,
     /// days a cached revision's content is kept after it was last read or written
     pub revision_days: i64,
     pub hard_exclude: Vec<String>,
@@ -198,6 +205,30 @@ impl Config {
         let kinds = self.action_kinds.as_ref()?;
         let kind = Config::action_kind(action);
         (!kinds.iter().any(|k| k == kind)).then(|| format!("action {action:?} has kind {kind:?}, not one of checks.action_kinds ({})", kinds.join(", ")))
+    }
+
+    /// The usage error for an action `checks.action_kinds` does not allow, if it does not. Adding a
+    /// kind is a change to plied.toml, which the caller may have no authority to make, so the
+    /// refusal says exactly what to ask for, in text and in `detail` (FORMAT.md §12).
+    pub fn action_refusal(&self, action: &str) -> Option<Fail> {
+        let problem = self.action_problem(action)?;
+        let kinds = self.action_kinds.as_deref().unwrap_or_default();
+        let kind = Config::action_kind(action);
+        let mut proposed = kinds.to_vec();
+        proposed.push(kind.to_string());
+        let line = format!("action_kinds = {}", T::from(proposed.clone()));
+        let msg = format!(
+            "{problem}. Action kinds are the project's vocabulary, set under [checks] in {}. Until that file allows this kind, \
+             plied can neither gate this action nor record a disposition for it. If no listed kind fits the step, ask whoever \
+             maintains the file for:\n  {line}\n`plied review <node> --action {action}` without --gate shows which commitments \
+             would govern it.",
+            self.path.display()
+        );
+        let detail = serde_json::json!({
+            "action": action, "kind": kind, "action_kinds": kinds,
+            "config": {"path": self.path, "key": "checks.action_kinds", "proposed": proposed},
+        });
+        Some(Fail::code(crate::error::EXIT_USAGE, msg).with_detail(detail))
     }
 
     pub fn kind(&self, kind: OwnKind) -> &Kind {
@@ -410,13 +441,15 @@ fn template(t: Option<String>, what: &str, args: &[(&str, Arg)]) -> Res<Option<S
 const KEYS: &[(&str, &[&str])] = &[
     ("plied", &["format", "requires", "root", "canonical_branch"]),
     ("ids", &["thread", "commitment", "question"]),
-    ("sources", &["name", "glob", "id", "id_field", "title_field", "date", "time", "status", "authority", "scope", "scan_commitments", "require_linked", "locators"]),
+    ("sources", &["name", "glob", "id", "id_field", "title_field", "date", "time", "status", "authority", "scope", "scan_commitments", "require_linked", "locators", "show_fields"]),
     ("access", &["sealed", "sealed_file"]),
     ("search", &["include", "exclude"]),
     ("literature", &["manifest", "list", "file_field", "hash_field", "id_field", "id_from_file", "pdf_dir", "text_dir", "page_file", "ocr_marker", "image_command", "image_path"]),
     ("checks", &["approve_authorities", "actors", "commitment_phrases", "commitments_since", "action_kinds"]),
     ("messages", &["lease_minutes"]),
     ("runtime", &["revision_days"]),
+    // facets are the project's own names, checked when the table is read
+    ("outcome_labels", &[]),
 ];
 const ID_KEYS: &[&str] = &["dir", "prefix", "width"];
 
@@ -430,6 +463,9 @@ fn known_keys(data: &Table) -> Res<()> {
             _ => vec![],
         };
         for (w, t) in tables {
+            if *table == "outcome_labels" {
+                continue;
+            }
             for (k, v) in t {
                 if !keys.contains(&k.as_str()) {
                     return Err(unknown(&w, k));
@@ -506,6 +542,13 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
                 Some("headings") => true,
                 Some(other) => return Err(err(format!("{w}locators: expected \"headings\", got {other:?}"))),
             },
+            show_fields: {
+                let fields = get_strs(s, "show_fields", None, &w)?.unwrap_or_default();
+                if fields.iter().any(String::is_empty) {
+                    return Err(err(format!("{w}show_fields: a field name cannot be empty")));
+                }
+                fields
+            },
         }));
     }
 
@@ -569,6 +612,25 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
             return Err(err(format!("checks.action_kinds: {k:?} is not a kind (no spaces or `:`)")));
         }
     }
+    let outcome_labels = match data.get("outcome_labels") {
+        None => None,
+        Some(T::Table(facets)) => {
+            let mut out = BTreeMap::new();
+            let name = Regex::new(r"^[A-Za-z_][A-Za-z0-9_-]*$").unwrap();
+            for (facet, _) in facets {
+                if !name.is_match(facet) {
+                    return Err(err(format!("outcome_labels.{facet}: a facet is a name of letters, digits, `_` and `-`")));
+                }
+                let labels = get_strs(facets, facet, None, "outcome_labels.")?.unwrap_or_default();
+                if labels.is_empty() || labels.iter().any(|l| l.trim().is_empty() || l.trim() != l) {
+                    return Err(err(format!("outcome_labels.{facet}: expected a nonempty list of labels, none blank or padded")));
+                }
+                out.insert(facet.clone(), labels);
+            }
+            Some(out)
+        }
+        Some(v) => return Err(err(format!("outcome_labels: expected a table of facets, got {}", got(v)))),
+    };
     let revision_days = match runtime.get("revision_days") {
         None => 14,
         Some(T::Integer(i)) if *i >= 0 => *i,
@@ -619,6 +681,7 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
         commitments_since: since,
         lease_minutes: get_positive(&msgs, "lease_minutes", 30, "messages.")?,
         action_kinds,
+        outcome_labels,
         revision_days,
         hard_exclude: vec![".git/**".into(), "**/.git/**".into()],
         root,

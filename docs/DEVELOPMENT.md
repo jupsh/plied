@@ -50,6 +50,7 @@ cargo +stable clippy --locked --all-targets --features pdf -- -D warnings
 python3 examples/first-task/replay.py --plied "$PWD/target/debug/plied"
 python3 examples/research/replay.py --plied "$PWD/target/debug/plied"
 python3 examples/scope/replay.py --plied "$PWD/target/debug/plied"
+python3 examples/reconcile/test_reconcile.py --plied "$PWD/target/debug/plied"
 cargo test --locked --example related
 cargo build --locked --example related
 python3 examples/related/test_related.py --plied "$PWD/target/debug/plied" --related "$PWD/target/debug/examples/related"

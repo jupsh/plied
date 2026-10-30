@@ -22,6 +22,7 @@ pub mod query;
 pub mod records;
 pub mod repo;
 pub mod schema;
+pub mod session;
 pub mod skill;
 mod summary;
 pub mod review;
