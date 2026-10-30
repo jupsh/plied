@@ -1089,7 +1089,9 @@ fn a_scoped_review_clears_only_the_revisions_it_names() {
     assert_eq!(envelope(&refused)["error"]["detail"]["id"], "D001");
 
     // the note vouches for D001 at the revision read, and leaves D002 standing
-    assert!(note(&p, &format!("D001@{}", &d1[..8])).status.success());
+    let reviewed = format!("D001@{}", &d1[..8]);
+    let punctuated = p.run_as("worker:one", &["note", "T001", "D001 changes the method; T001 is unaffected", "--reviewed", &reviewed, "--expect", &p.rev("T001"), "--json"]);
+    assert!(punctuated.status.success(), "{}", common::text(&punctuated));
     assert_eq!(causes(&p), ["D002"]);
     let shown = p.ok(&["show", "T001"]);
     assert!(shown.contains(&format!(": reviewed D001@{}; D001 changes the method", &d1[..12])), "{shown}");
@@ -1245,6 +1247,38 @@ fn action_kinds_restrict_new_reviews_and_warn_about_old_ones() {
     assert_eq!(gate(&p, "T001", "run:fit-20261024"), Some(0));
     let out = p.ok(&["check"]);
     assert!(out.contains("warning") && out.contains("deploy-friday"), "the old review is a warning, not an error:\n{out}");
+}
+
+#[test]
+fn an_unknown_action_kind_says_what_to_ask_for_and_review_still_previews_it() {
+    let p = two_threads();
+    commitment(&p, &["nodes=[T001]"]);
+    p.append_config("[checks]\naction_kinds = [\"run\", \"publish\"]\n");
+    let refused = p.run(&["review", "T001", "--action", "apply:patch-3", "--gate", "--json"]);
+    assert_eq!(refused.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    let detail = &v["error"]["detail"];
+    assert_eq!(detail["action"], "apply:patch-3");
+    assert_eq!(detail["kind"], "apply");
+    assert_eq!(detail["action_kinds"], serde_json::json!(["run", "publish"]));
+    assert_eq!(detail["config"]["key"], "checks.action_kinds");
+    assert_eq!(detail["config"]["proposed"], serde_json::json!(["run", "publish", "apply"]));
+    assert!(detail["config"]["path"].as_str().unwrap().ends_with("plied.toml"), "{detail}");
+    assert!(v["error"]["message"].as_str().unwrap().contains(r#"action_kinds = ["run", "publish", "apply"]"#), "{v}");
+    let rev = p.rev("P01");
+    let refused = p.run(&["dispose", "P01", "--action", "apply:patch-3", "--disposition", "satisfied", "--because", "x", "--expect", &rev, "--json"]);
+    assert_eq!(refused.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(v["error"]["detail"]["kind"], "apply", "dispose refuses with the same detail");
+
+    // without --gate, review only reads, so it shows what would govern the action once the kind exists
+    let out = p.run(&["review", "T001", "--action", "apply:patch-3", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["result"]["commitments"][0]["id"], "P01");
+    assert_eq!(v["result"]["commitments"][0]["governs_action"], true);
+    assert!(v["result"]["gate"].is_null());
+    assert!(v["notes"][0].as_str().unwrap().contains("checks.action_kinds"), "{v}");
 }
 
 // ------------------------------------------------------------------------- dates

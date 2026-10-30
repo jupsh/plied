@@ -396,8 +396,8 @@ scoped review line.
 
 A **scoped review line** (since 0.12.0) is one whose `<what>` starts with
 `reviewed ` and a list of one or more `ID@REV`, separated by `, `, followed
-by the end of the line, `; ` or ` — `. `<agent>` contains no `:` in such a
-line. `REV` is 8 to 64 lowercase hex digits; `note --reviewed` and `set
+by the end of the line, `; ` or ` — `. Agent and session names may contain
+`:`; the `: reviewed ` delimiter is still recognised. `REV` is 8 to 64 lowercase hex digits; `note --reviewed` and `set
 --reviewed` write 12. The line says that the writer judged the node against
 those linked records at those revisions, and against nothing else, so it
 does not move the last update on (§8). Whatever else the same write changed,
@@ -583,6 +583,7 @@ earlier in the same log; anything else is an error.
 | `written.txt` | revisions plied wrote, as hashes, one per line; the commit guard accepts only these. Pruning never touches it |
 | `intent.json` | present only while a write is in progress or was interrupted: `{"version": 1, "state": "prepare" \| "commit", "files": [{path, tmp, prev, sha}]}`. Paths are absolute (§11) |
 | `sessions/<session>.json` | private: hook state |
+| `seen/<session>.json` | private: the plied version and store `requires` a session first saw (§11, *Session baseline*). Added in 0.12.0 |
 | `index.json` | private: search index, refused when built under another access policy |
 | `hashcache.json`, `papers/`, `paper-img/` | private: literature caches |
 
@@ -913,6 +914,19 @@ is refused with exit 4 and an `append-only` diagnostic (subject: the list
 field, location: the record path). This is a write-time comparison, not a
 claim of tamper resistance against direct edits or rewritten git history.
 
+**Session baseline.** An agent reads `plied skill` early and then works
+from it, so another session upgrading plied or raising `requires` can leave
+its guidance out of date while every command still succeeds. Since 0.12.0,
+each command that loads a configured store in an effective session (as for
+`release --this-session`) compares the running version and the store's
+`requires` with what that session first saw. The first sight records the
+baseline silently. A difference adds one note naming both changes and
+pointing to `plied skill`, then records the new baseline, so the note is
+given once per change. `plied hook claude` does the same on events that can
+carry context and puts the note in the agent's context. A session id that is
+not a single file name has no baseline. `context` only reads it (§11.2).
+Failing to read or write the baseline never changes a command's outcome.
+
 **Side effects of reading.** `plied inbox` records `read` for the messages it
 shows, unless `--peek` is given. `plied show` adds the revision it shows to
 the revision cache (§6), so a later conflict can show a diff from it.
@@ -1007,8 +1021,9 @@ not:
   `kind` is `general`, `literature`, `policy` or `query`. `message` is free
   text. `detail` is present for a conflict
   (`{"id", "expected", "current"}`, with `current` null when the record is
-  absent) and for a write that would add errors (`{"diagnostics": [...]}`,
-  diagnostics as in §8).
+  absent), for a write that would add errors (`{"diagnostics": [...]}`,
+  diagnostics as in §8), and for an action whose kind `checks.action_kinds`
+  refuses (§12).
 - `notes` lists things worth knowing that are not the result, as text, for
   example that recovery finished an earlier write (§11) or that a read may
   mix old and new files.
@@ -1136,7 +1151,11 @@ per-record revision requirements above.
 
 `context [NODE]` returns `{version, configured, canonical, here, runtime,
 runtime_access, configuration, branch, canonical_branch, write_blockers, identity,
-vocabularies, linked_sources, capabilities, node}`. `configuration` holds
+session_seen, vocabularies, linked_sources, capabilities, node}`.
+`session_seen` (added in 0.12.0) is the effective session's baseline
+`{version, requires, at}` (§11, *Session baseline*), or null. Context never
+records it, but adds the note when the current version or `requires`
+differs from it. `configuration` holds
 `{path, format, requires, compatible}`; `identity` holds `{agent, session}`
 using the normal identity overrides. `vocabularies` holds `actors`,
 `action_kinds` and `approve_authorities` (null when unavailable).
@@ -1235,9 +1254,19 @@ change this verdict; `check` reports them separately.
   other action does not count, so a new action name starts without reviews.
 - An action is `kind` or `kind:instance`, with the kind before the first
   `:` (`run:fit-20261024` has kind `run`). When `checks.action_kinds` is
-  set, `review --action` and `dispose --action` refuse any other kind as a
-  usage error (exit 2). The kind is a vocabulary check only: the gate still
-  compares the whole name.
+  set, `review --gate` and `dispose` refuse any other kind as a usage error
+  (exit 2). The kind is a vocabulary check only: the gate still compares the
+  whole name.
+- The refusal says what to ask for, since adding a kind changes
+  `plied.toml`, which is a project decision. With `--json`, its
+  `error.detail` is `{action, kind, action_kinds, config: {path, key,
+  proposed}}`: `key` is `checks.action_kinds`, and `proposed` is the
+  configured list with the refused kind appended. Since 0.12.0, `review
+  --action` without `--gate` only reads, so it accepts any kind, adds a note
+  that the gate and `dispose` would refuse it, and lists the commitments that
+  would govern it once the kind is allowed. (Before 0.12.0, it refused too.)
+  A project that wants every step to be gateable MAY configure a catch-all
+  kind such as `other`; plied gives no kind a special meaning.
 - Every disposition except `blocks` passes, `acting` included. A passing gate
   means each applicable commitment was reviewed for this action. It does not
   mean the obligation was fulfilled, or that the evidence a review relied on

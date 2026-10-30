@@ -109,9 +109,9 @@ pub const LIST_FIELDS: [&str; 10] = ["waiting_on", "uses", "carries", "links", "
 
 static HISTORY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^- (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC\b(.*)$").unwrap());
 /// A scoped review line's text after the time (§3.5): `<who>: reviewed ID@REV[, ID@REV…]`, then the
-/// line's end, `; ` or ` — `. `<who>` is an agent and session, so it holds no `:`.
+/// line's end, `; ` or ` — `. Agent and session names may themselves contain `:`.
 static REVIEWED_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^ [^:]*: reviewed ([^\s,;@]+@[0-9a-f]{8,64}(?:, [^\s,;@]+@[0-9a-f]{8,64})*)(?:$|; | — )").unwrap());
+    LazyLock::new(|| Regex::new(r"^ .*: reviewed ([^\s,;@]+@[0-9a-f]{8,64}(?:, [^\s,;@]+@[0-9a-f]{8,64})*)(?:$|; | — )").unwrap());
 static REF_END: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\s,;]").unwrap());
 static WORDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[a-z0-9]+").unwrap());
 
