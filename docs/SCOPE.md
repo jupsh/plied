@@ -195,6 +195,7 @@ These are built so that other tools can do the work.
 |---|---|
 | Versioned JSON results, errors included | Implemented |
 | Portable operations and application receipts | Proposed: [RFC 0001](rfc/0001-operations.md) |
+| One acknowledgement model; versioned feature writes | Proposed: [RFC 0002](rfc/0002-attention.md) |
 | Attestations | Proposed, after operations |
 | Export closure | Needs design |
 | External reference helpers | Needs design |
