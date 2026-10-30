@@ -6,6 +6,16 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+## 0.12.0 — 2026-10-30
+
+The record format and JSON envelope remain at version 1. Stores using
+scoped review notes, outcome labels, prior outcomes, source `show_fields`
+or heading locators should set `requires = ">=0.12.0"`.
+Reopening now preserves the old outcome through `plied reopen`; directly
+clearing or replacing its quote or reference without retaining it is refused.
+RFC 0002 is a draft for future acknowledgement and compatibility changes;
+its proposed enforcement and `--with` interface are not part of this release.
+
 - Let a source opt into heading locators. With `locators = "headings"` on a
   `[[sources]]` entry, a `#Heading` locator on `outcome.ref` or `made`
   narrows quotation matching to that section of the record. A missing or
