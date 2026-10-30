@@ -85,6 +85,11 @@ show → --expect cycle follows. Before handing off, record what remains and
 where, then release only this session (`release --this-session` requires a
 nonempty session). New sessions get new IDs, even for the same agent.
 
+If a command (or the hook) notes that plied or the store's `requires`
+changed since this session first ran plied, re-read `plied skill` before
+your next write: this guidance may no longer be the binary's. `plied
+context --json` shows the baseline as `session_seen`.
+
 Task map: **Orient** (`context`, `schema`, `show`, `messages`); **Update**
 (`new`, `set`, `note`, `replace`); **Review** (`review`, `dispose`, `check`);
 **Communicate** (`claim`, `send`, `inbox`, `release`); **Recover** (`show`

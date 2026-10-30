@@ -6,6 +6,12 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Say when plied changed under a session. Each command run in a session
+  compares the running plied version and the store's `requires` with what
+  that session first saw, and notes a change once, pointing to
+  `plied skill`. The agent hook puts the same note in the agent's context,
+  and `context` reports the baseline as `session_seen`.
+  ([#89](https://github.com/jupsh/plied/issues/89))
 - Make an action kind that `checks.action_kinds` refuses recoverable. The
   usage error from `review --gate` and `dispose` names the config file and
   key and gives the exact line to ask for; with `--json`, `error.detail`
