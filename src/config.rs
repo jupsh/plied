@@ -80,6 +80,8 @@ pub struct Source {
     pub scope_field: Option<String>,
     pub scan_commitments: bool,
     pub require_linked: bool,
+    /// `locators = "headings"`: a `#Heading` locator narrows quotation matching to that section (§3.4)
+    pub heading_locators: bool,
     /// frontmatter fields `frontier --linked` and `show --linked` show for this source's records
     /// that a plied record references (FORMAT.md §4); empty: the source takes no part
     pub show_fields: Vec<String>,
@@ -439,7 +441,7 @@ fn template(t: Option<String>, what: &str, args: &[(&str, Arg)]) -> Res<Option<S
 const KEYS: &[(&str, &[&str])] = &[
     ("plied", &["format", "requires", "root", "canonical_branch"]),
     ("ids", &["thread", "commitment", "question"]),
-    ("sources", &["name", "glob", "id", "id_field", "title_field", "date", "time", "status", "authority", "scope", "scan_commitments", "require_linked", "show_fields"]),
+    ("sources", &["name", "glob", "id", "id_field", "title_field", "date", "time", "status", "authority", "scope", "scan_commitments", "require_linked", "locators", "show_fields"]),
     ("access", &["sealed", "sealed_file"]),
     ("search", &["include", "exclude"]),
     ("literature", &["manifest", "list", "file_field", "hash_field", "id_field", "id_from_file", "pdf_dir", "text_dir", "page_file", "ocr_marker", "image_command", "image_path"]),
@@ -535,6 +537,11 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
             scope_field: get_str(s, "scope", None, &w)?,
             scan_commitments: get_bool(s, "scan_commitments", false, &w)?,
             require_linked: get_bool(s, "require_linked", false, &w)?,
+            heading_locators: match get_str(s, "locators", None, &w)?.as_deref() {
+                None => false,
+                Some("headings") => true,
+                Some(other) => return Err(err(format!("{w}locators: expected \"headings\", got {other:?}"))),
+            },
             show_fields: {
                 let fields = get_strs(s, "show_fields", None, &w)?.unwrap_or_default();
                 if fields.iter().any(String::is_empty) {

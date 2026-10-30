@@ -183,7 +183,8 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   record it cites, after normalisation of both sides (whitespace collapsed,
   curly quotes straightened, `*` and backticks removed — `_` is not —,
   hyphenated line breaks joined). It is matched against the record's whole
-  file, whatever locator `made` carries. Case changes and paraphrases fail. Quote non-contiguous parts by joining
+  file, whatever locator `made` carries, unless its source sets `locators =
+  "headings"`: then `made=D134 #Results` matches only that section. Case changes and paraphrases fail. Quote non-contiguous parts by joining
   them with ` … ` (or `...`); the parts must appear in order. If the words
   are not in the record yet, write the record first — never approximate.
 - Attach with `nodes=[T001, T002]`, or set `applies: subtree` / `project`.

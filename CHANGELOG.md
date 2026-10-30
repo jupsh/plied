@@ -6,6 +6,12 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Let a source opt into heading locators. With `locators = "headings"` on a
+  `[[sources]]` entry, a `#Heading` locator on `outcome.ref` or `made`
+  narrows quotation matching to that section of the record. A missing or
+  repeated heading is a `quote` error, never a fallback to the whole file.
+  Other locators and other sources are unchanged. Stores using it should
+  set `requires = ">=0.12.0"`. ([#35](https://github.com/jupsh/plied/issues/35))
 - Add a report-only reconciler example (`examples/reconcile`): it checks a
   ledger of linked records against an independently defined, versioned
   eligibility list, and reports missing, duplicate, ineligible and malformed

@@ -135,6 +135,13 @@ pub fn ref_id(r: &str) -> String {
     first.trim_end_matches(['.', ':', ')']).to_string()
 }
 
+/// The locator in a reference, after its id: 'D134 §2' -> '§2' (§3.4).
+pub fn ref_locator(r: &str) -> &str {
+    let s = r.trim();
+    let first = REF_END.split(s).next().unwrap_or("");
+    s[first.len()..].trim_start_matches(|c: char| c.is_whitespace() || c == ',' || c == ';').trim_end()
+}
+
 /// The id in a reference held by a frontmatter value (empty for collections).
 pub fn node_ref(n: &Node) -> String {
     n.scalar().map(|s| ref_id(&s)).unwrap_or_default()

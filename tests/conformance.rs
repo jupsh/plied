@@ -1058,6 +1058,40 @@ fn a_stale_warning_says_whether_the_node_was_named_and_named_ones_come_first() {
     assert!(stale[1].0.contains("T001-") && stale[1].1 == "links", "{stale:?}");
 }
 
+#[test]
+fn a_heading_locator_narrows_a_quotation_only_where_a_source_opts_in() {
+    let p = Proj::new();
+    p.append_config(concat!(
+        "[[sources]]\nname = \"report\"\nglob = \"r/*.md\"\nid = \"^R[0-9]{3}$\"\nlocators = \"headings\"\n",
+        "[[sources]]\nname = \"note\"\nglob = \"n/*.md\"\nid = \"^N[0-9]{3}$\"\n",
+    ));
+    let body = "# Report\nA whole-file sentence.\n## Results\nThe effect was 3%.\n### Detail\nIn both arms.\n## Methods\nWe measured the effect.\n";
+    for (dir, id) in [("r", "R001"), ("n", "N001")] {
+        std::fs::create_dir_all(p.path().join(dir)).unwrap();
+        std::fs::write(p.path().join(format!("{dir}/{id}.md")), format!("---\nid: {id}\ntitle: report\n---\n{body}")).unwrap();
+    }
+    p.ok(&["new", "thread", "--title", "Measure"]);
+    let close = |p: &Proj, r: &str, q: &str| p.set("T001", &["status=closed", &format!("outcome.ref={r}"), &format!("outcome.quote={q}")]).status.code();
+    assert_eq!(close(&p, "R001 #Methods", "The effect was 3%."), Some(4), "the quote is in the file, not in the section");
+    assert_eq!(close(&p, "R001 #Results", "The effect was 3% … We measured"), Some(4), "every part of a quotation stays in the section");
+    assert_eq!(close(&p, "R001 #Discussion", "The effect was 3%."), Some(4), "a missing heading never falls back to the whole file");
+    assert_eq!(close(&p, "R001 #Results", "The effect was 3%. … In both arms."), Some(0), "the section holds its subsections");
+    let err = diagnostics(&p);
+    assert!(err.iter().all(|(l, _, _, _)| l != "error"), "{err:?}");
+
+    // other locators, and sources that have not opted in, still match the whole file
+    p.ok(&["new", "thread", "--title", "Other"]);
+    assert!(p.set("T002", &["status=closed", "outcome.ref=R001 §2", "outcome.quote=We measured the effect."]).status.success());
+    p.ok(&["new", "thread", "--title", "Third"]);
+    assert!(p.set("T003", &["status=closed", "outcome.ref=N001 #Results", "outcome.quote=We measured the effect."]).status.success());
+    // a commitment's wording is a quotation too
+    assert_eq!(p.code(&["new", "commitment", "--title", "c", "made=R001 #Results", "wording=We measured the effect."]), Some(4));
+    p.ok(&["new", "commitment", "--title", "c", "made=R001 #Methods", "wording=We measured the effect.", "nodes=[T001]"]);
+
+    p.append_config("[[sources]]\nname = \"bad\"\nglob = \"x/*.md\"\nid = \"^X\"\nlocators = \"sections\"\n");
+    assert_eq!(p.code(&["check"]), Some(1), "locators takes one known value");
+}
+
 /// Move every history line of a record back to 2000, as if it was last updated long ago.
 fn backdate(p: &Proj, rel: &str) {
     let path = p.path().join(rel);
