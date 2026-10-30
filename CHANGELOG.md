@@ -6,6 +6,18 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Act on the first unfamiliar-agent acceptance run
+  ([#65](https://github.com/jupsh/plied/issues/65)). `claim` lists the other
+  live claims on the node (`others` in JSON), and lease times show their
+  date. `dispose --help` describes every argument, including the
+  dispositions. The skill gains a start-to-finish path, a session id that
+  is unique in its first 8 characters and stable across commands, guidance
+  on committing record files, authority rules, pins, `outcome.ref` and
+  messages addressed to someone else. `context` reports where the session
+  came from (`identity.session_source`), since subagents inherit
+  `CLAUDE_CODE_SESSION_ID`. A passing gate says so on stderr, and an
+  unpinned review's `unbound` evidence is explained.
+  ONBOARDING-VALIDATION.md records both runs.
 - Let a review clear only the records it covers. `note` and `set` take
   `--reviewed ID@REV` (repeatable). The write's history line becomes a
   scoped review naming those linked records at the revisions read, checked

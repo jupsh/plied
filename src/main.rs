@@ -116,6 +116,7 @@ enum Cmd {
     Note {
         id: String,
         text: String,
+        /// the revision you read (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
         /// a linked record you read and judged this node against, as ID@REV (REV from `plied show`, 8+ hex); repeat for each. The write then vouches only for those revisions, not for every newer record (FORMAT.md §3.5)
@@ -129,6 +130,7 @@ enum Cmd {
         id: String,
         /// the new content (- for stdin)
         file: String,
+        /// the revision you read (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
         #[arg(long)]
@@ -275,18 +277,24 @@ enum Cmd {
     },
     /// record a commitment's disposition for an action
     Dispose {
+        /// the commitment
         id: String,
+        /// the exact action this disposition is for, `kind` or `kind:instance` (the gate compares it exactly)
         #[arg(long)]
         action: String,
+        /// satisfied, acting, not-triggered, not-applicable or blocks (only blocks holds the gate)
         #[arg(long)]
         disposition: String,
+        /// what you checked, in words a later reader can verify
         #[arg(long)]
         because: String,
-        #[arg(long)]
+        /// a record or other reference backing the disposition (text, not checked)
+        #[arg(long = "ref")]
         ref_: Option<String>,
         /// exact evidence bytes you read; repeat for each input (never inferred from --ref)
         #[arg(long = "read", value_name = "ID@FULL_REV")]
         read: Vec<String>,
+        /// the commitment's revision, as you read it (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
         #[command(flatten)]
@@ -392,6 +400,21 @@ impl Ctx {
             return Ok(None);
         }
         Ok(Some(self.library()?))
+    }
+}
+
+/// Where the effective session came from, in `who_of`'s order: `--session`, `PLIED_SESSION` or
+/// `CLAUDE_CODE_SESSION_ID`. The last is shared by a Claude Code session's subagents.
+fn session_source(args: &WhoArgs) -> Option<&'static str> {
+    let set = |v: Option<String>| v.is_some_and(|s| !s.is_empty());
+    if set(args.session.clone()) {
+        Some("--session")
+    } else if set(std::env::var("PLIED_SESSION").ok()) {
+        Some("PLIED_SESSION")
+    } else if set(std::env::var("CLAUDE_CODE_SESSION_ID").ok()) {
+        Some("CLAUDE_CODE_SESSION_ID")
+    } else {
+        None
     }
 }
 
@@ -687,14 +710,24 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             let st = ctx.store()?;
             let r = st.get(node).ok_or_else(|| Fail::new(format!("no record {node}")))?;
             let c = ctx.messages().claim(node, &who.agent, who.session.as_deref(), *ttl)?;
-            // whoever takes up a node sees what it obliges before acting on it (§12)
+            // whoever takes up a node sees what it obliges before acting on it (§12), and who else is on it:
+            // a claim is presence, not exclusive
             let apps = node_commitments(&st, r);
+            let others: Vec<_> =
+                ctx.messages().claims(false).into_iter().filter(|o| o.node == *node && (o.agent != c.agent || o.session != c.session)).collect();
             if json {
                 let mut o = c.to_json();
                 o.as_object_mut().unwrap().insert("commitments".into(), commitments_json(&apps));
+                o.as_object_mut().unwrap().insert("others".into(), Value::Array(others.iter().map(|o| o.to_json()).collect()));
                 out_json(&o);
             } else {
                 outln!("{} is on {node} until {} UTC (renewed by the hook, or claim again)", who.agent, c.expires().format("%Y-%m-%d %H:%M"));
+                if !others.is_empty() {
+                    outln!("Also on {node} (claims are presence, not exclusive; read `plied messages {node}` before overlapping):");
+                    for o in &others {
+                        outln!("  {}", lease_text(o));
+                    }
+                }
                 if !apps.is_empty() {
                     outln!("Commitments that apply (review before acting: `plied review {node}`):");
                     outln!("{}", commitment_lines(&apps).join("\n"));
@@ -729,8 +762,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
                 ));
             } else {
                 for c in &cs {
-                    let s = c.session.as_ref().map(|s| format!(" session {}", doc::take(s, 8))).unwrap_or_default();
-                    outln!("{:6} {}{s}, since {}, lease until {} UTC", c.node, c.agent, c.since, c.expires().format("%H:%M"));
+                    outln!("{:6} {}", c.node, lease_text(c));
                 }
                 if cs.is_empty() {
                     outln!("nobody has a live claim");
@@ -797,6 +829,12 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
         Cmd::Scanned { id, rev, on, because, expect, who } => cmd_scanned(ctx, id, rev, on, because, expect, who, json),
         _ => unreachable!(),
     }
+}
+
+/// A live claim for people: who, which session (its first 8 characters, as in history), and until when.
+fn lease_text(c: &plied::messages::Claim) -> String {
+    let s = c.session.as_ref().map(|s| format!(" (session {})", doc::take(s, 8))).unwrap_or_default();
+    format!("{}{s}, since {}, lease until {} UTC", c.agent, c.since, c.expires().format("%Y-%m-%d %H:%M"))
 }
 
 /// For `--reviewed ID@REV…`: the write's scoped review (§3.5), checked against the store loaded under
@@ -881,7 +919,8 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
     let configuration = repo::configuration_path(cli.c.as_deref(), cli.config.as_deref())?;
     let capabilities = json!({"pdf": cfg!(feature = "pdf"), "record_kinds": ["thread", "commitment", "question"],
         "discovery": ["context", "schema"], "guidance": ["--help", "skill"]});
-    let identity = json!({"agent": if who.agent.is_empty() { None } else { Some(&who.agent) }, "session": who.session});
+    let identity = json!({"agent": if who.agent.is_empty() { None } else { Some(&who.agent) }, "session": who.session,
+        "session_source": session_source(args)});
     let Some(repo) = discovery_repo(cli)? else {
         let canonical = configuration.parent().unwrap_or_else(|| Path::new("."));
         return print_discovery(json!({"version": plied::VERSION, "configured": false, "canonical": canonical,
@@ -1155,7 +1194,8 @@ fn record_text(ctx: &Ctx, st: &Store, r: &Record) -> Res<String> {
         }
         let claims: Vec<_> = ctx.messages().claims(false).into_iter().filter(|c| c.node == r.id).collect();
         if !claims.is_empty() {
-            l.push(format!("On it now (leases): {}", claims.iter().map(|c| format!("{} until {} UTC", c.agent, c.expires().format("%H:%M"))).collect::<Vec<_>>().join(", ")));
+            l.push("On it now (leases):".into());
+            l.extend(claims.iter().map(|c| format!("  {}", lease_text(c))));
         }
     }
     Ok(l.join("\n"))
@@ -1823,7 +1863,8 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
                 );
             }
             for claim in review::input_reviews(&st, c, action) {
-                outln!("  evidence for {} (review {}): {}", claim.action, claim.review_index, claim.status);
+                let gloss = if claim.status == "unbound" { " (no --read pins; the gate does not use pins)" } else { "" };
+                outln!("  evidence for {} (review {}): {}{gloss}", claim.action, claim.review_index, claim.status);
                 for input in claim.inputs {
                     outln!("    {}@{}: {}", input.record, doc::take(&input.rev, 12), input.status);
                 }
@@ -1847,6 +1888,11 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
         if !json {
             for r in &reasons {
                 errln!("gate: {r}");
+            }
+            // a pass is a verdict too: say it, rather than leave it to the exit code
+            if reasons.is_empty() {
+                let n = items.iter().filter(|x| x.governs_action).count();
+                errln!("gate: passed for {}: {n} applicable commitment(s) govern it, each with a non-blocking disposition for it", action.unwrap_or_default());
             }
         }
         return Ok(if reasons.is_empty() { 0 } else { EXIT_GATE });
