@@ -391,7 +391,21 @@ line):
 ```
 
 The time is the minute of the change according to the writing machine's
-clock. A node's *last update* is its latest history line.
+clock. A node's *last update* is its latest history line that is not a
+scoped review line.
+
+A **scoped review line** (since 0.12.0) is one whose `<what>` starts with
+`reviewed ` and a list of one or more `ID@REV`, separated by `, `, followed
+by the end of the line, `; ` or ` — `. `<agent>` contains no `:` in such a
+line. `REV` is 8 to 64 lowercase hex digits; `note --reviewed` and `set
+--reviewed` write 12. The line says that the writer judged the node against
+those linked records at those revisions, and against nothing else, so it
+does not move the last update on (§8). Whatever else the same write changed,
+it vouches for no other record. A line in this form written by hand counts
+the same: it can only cover bytes whose revision starts with `REV`, so a
+wrong revision covers nothing. An earlier plied reads such a line as an
+ordinary update, which reviews everything newer. A store whose writers use
+scoped reviews should set `requires = ">=0.12.0"`.
 
 Record dates are claims by the writer, not evidence that the record existed
 before an external event. History times and a review's `at` use the writing
@@ -671,7 +685,10 @@ other than `parent` or a commitment's `nodes`. To *mention* is to
 contain the id anywhere in the linked record's file text, frontmatter
 included, with no letter, digit or `_` directly before or after it. A linked
 record that the record itself references never makes it stale, and a record
-with no history line is never stale. `parent` is left out because it is
+with no history line other than scoped review lines is never stale. Nor does a
+linked record that a scoped review line in the record's history names with a
+revision its current revision starts with (§3.5); a later edit of that record
+makes it news again. `parent` is left out because it is
 organisational (§3.3): a record about a group makes the group stale, not
 each of its children. (Before 0.4.0, `parent` counted.) A commitment's `nodes`
 attaches the obligation (§12); news about an attached thread or question is
@@ -851,7 +868,18 @@ integer when it is all digits, and as text otherwise. List fields (§3.3) given
 a single value hold a one-item list. `id` can never be assigned. Each write
 appends one history line (§3.5) that says what changed, followed by `--why`.
 
-**Other writes.** `plied note` adds only a history line. `plied replace`
+**Other writes.** `plied note` adds only a history line.
+
+`note` and `set` take a repeatable `--reviewed ID@REV`: a linked record the
+caller read and judged the node against, with the revision it read (at
+least 8 hex digits). The history line then starts with a scoped review
+(§3.5) naming each at its current revision's first 12 digits, followed by
+`; ` and the rest. Under the write lock, every named record must be
+readable, linked and still at a revision starting with `REV`. A missing or
+possibly sealed record, or a plied record, is an error (exit 1), and a
+changed one a conflict (exit 3, `detail` naming it), so the review covers
+what was read. Malformed values are usage errors (exit 2). A named record
+that does not currently make the node stale is recorded anyway, with a note. `plied replace`
 takes a whole file. It must keep the record's id, and it gets a history line
 like any write. `plied dispose` appends one `reviews` item (§3.3) and never
 edits an earlier one. `plied scanned R --rev REV --on T --because …`

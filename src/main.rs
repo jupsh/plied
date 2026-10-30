@@ -106,6 +106,9 @@ enum Cmd {
         expect: String,
         #[arg(long)]
         why: Option<String>,
+        /// a linked record you read and judged this node against, as ID@REV (REV from `plied show`, 8+ hex); repeat for each. The write then vouches only for those revisions, not for every newer record (FORMAT.md §3.5)
+        #[arg(long, value_name = "ID@REV")]
+        reviewed: Vec<String>,
         #[command(flatten)]
         who: WhoArgs,
     },
@@ -115,6 +118,9 @@ enum Cmd {
         text: String,
         #[arg(long, value_name = "REV")]
         expect: String,
+        /// a linked record you read and judged this node against, as ID@REV (REV from `plied show`, 8+ hex); repeat for each. The write then vouches only for those revisions, not for every newer record (FORMAT.md §3.5)
+        #[arg(long, value_name = "ID@REV")]
+        reviewed: Vec<String>,
         #[command(flatten)]
         who: WhoArgs,
     },
@@ -581,18 +587,20 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             }
             Ok(0)
         }
-        Cmd::Set { id, assign, set_file, expect, why, who } => {
+        Cmd::Set { id, assign, set_file, expect, why, reviewed, who } => {
             let who = who_of(who, true)?;
             let assigns = assignments_of(cli, assign, set_file)?;
+            let mut scoped = scoped_review(id, reviewed)?;
             let lib = ctx.library_opt()?;
-            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, why.as_deref(), &assigns, None, None, None)?;
+            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, why.as_deref(), &assigns, None, None, scoped.as_deref_mut())?;
             print_updated(id, &rev, json, "updated");
             Ok(0)
         }
-        Cmd::Note { id, text, expect, who } => {
+        Cmd::Note { id, text, expect, reviewed, who } => {
             let who = who_of(who, true)?;
+            let mut scoped = scoped_review(id, reviewed)?;
             let lib = ctx.library_opt()?;
-            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, None, &[], Some(text), None, None)?;
+            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, None, &[], Some(text), None, scoped.as_deref_mut())?;
             print_updated(id, &rev, json, "noted");
             Ok(0)
         }
@@ -762,6 +770,42 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
         Cmd::Scanned { id, rev, on, because, expect, who } => cmd_scanned(ctx, id, rev, on, because, expect, who, json),
         _ => unreachable!(),
     }
+}
+
+/// For `--reviewed ID@REV…`: the write's scoped review (§3.5), checked against the store loaded under
+/// the write lock, so it names only revisions that are current when it is written. None without any.
+fn scoped_review<'a>(node: &'a str, reviewed: &[String]) -> Res<Option<Box<plied::writer::Mutate<'a>>>> {
+    let mut items: Vec<(String, String)> = vec![];
+    for value in reviewed {
+        let Some((id, rev)) = value.rsplit_once('@').map(|(i, r)| (i.to_string(), r.to_ascii_lowercase())).filter(|(i, r)| !i.is_empty() && plied::records::is_rev(r)) else {
+            return Err(Fail::code(EXIT_USAGE, "--reviewed needs ID@REV: a linked record's id and the revision you read (at least 8 hex characters; `plied show` prints it)"));
+        };
+        if !items.iter().any(|(i, _)| *i == id) {
+            items.push((id, rev));
+        }
+    }
+    if items.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Box::new(move |store: &Store, _meta: &mut Map| -> Res<String> {
+        let causes: Vec<String> = store.get(node).map(|n| check::freshness(store, n).into_iter().map(|c| c.record).collect()).unwrap_or_default();
+        let mut named = vec![];
+        for (id, rev) in &items {
+            let r = store.get(id).ok_or_else(|| Fail::new(format!("{id} is unavailable (missing or possibly sealed)")))?;
+            if r.is_own() {
+                return Err(Fail::new(format!("{id} is a plied record; --reviewed names the linked records that make a node stale")));
+            }
+            if !r.rev.starts_with(rev.as_str()) {
+                return Err(Fail::code(plied::error::EXIT_CONFLICT, format!("{id} changed since you read it; read it again"))
+                    .with_detail(json!({"id": id, "expected": rev, "current": r.rev})));
+            }
+            if !causes.contains(id) {
+                plied::notes::note(format!("{id} does not make {node} stale; the review is recorded anyway"));
+            }
+            named.push(format!("{id}@{}", &r.rev[..12]));
+        }
+        Ok(format!("reviewed {}", named.join(", ")))
+    })))
 }
 
 fn print_updated(id: &str, rev: &str, json: bool, verb: &str) {

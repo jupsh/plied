@@ -6,6 +6,16 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Let a review clear only the records it covers. `note` and `set` take
+  `--reviewed ID@REV` (repeatable). The write's history line becomes a
+  scoped review naming those linked records at the revisions read, checked
+  under the write lock. A scoped review does not count as the node's last
+  update, so other newer records keep the node stale, and an edit to a
+  reviewed record makes it stale again. Ordinary writes still review
+  everything newer. Earlier plied reads a scoped review as an ordinary
+  update, so stores whose writers use it should set
+  `requires = ">=0.12.0"`. ([#85](https://github.com/jupsh/plied/issues/85))
+
 ## 0.11.0 — 2026-10-29
 
 The record format and JSON envelope remain at version 1. Stores using
