@@ -1059,6 +1059,56 @@ fn a_stale_warning_says_whether_the_node_was_named_and_named_ones_come_first() {
 }
 
 #[test]
+fn outcome_labels_are_writer_chosen_per_facet_and_only_warn() {
+    // the research example's T002: the criterion was not met, and that settles nothing elsewhere,
+    // so how the work ended and what the evidence supports are separate facets
+    let p = Proj::new();
+    p.with_evidence();
+    p.evidence("E004", "", "The declared effect criterion was not met in run 02.");
+    p.ok(&["new", "thread", "--title", "Interpret against the plan"]);
+    let close = |p: &Proj, labels: &[&str]| {
+        let mut args = vec!["status=closed", "outcome.ref=E004", "outcome.quote=The declared effect criterion was not met in run 02."];
+        args.extend(labels);
+        p.set("T001", &args)
+    };
+    let labels = |p: &Proj| -> Vec<(String, String)> {
+        diagnostics(p).into_iter().filter(|(_, c, _, _)| c == "label").map(|(l, _, _, s)| (l, s)).collect()
+    };
+    // Shape is enforced even without a vocabulary; only vocabulary membership is advisory.
+    assert_eq!(close(&p, &["outcome.labels.criterion=[not-met]"]).status.code(), Some(4));
+    assert_eq!(close(&p, &["outcome.labels.criterion.detail=not-met"]).status.code(), Some(4));
+    // without a vocabulary a label is allowed, with a warning that nothing checks it
+    assert!(close(&p, &["outcome.labels.criterion=not-met"]).status.success());
+    assert_eq!(labels(&p), [("warning".to_string(), "outcome.labels".to_string())]);
+
+    p.append_config("[outcome_labels]\nprocedure = [\"as-planned\", \"stopped-early\"]\ncriterion = [\"met\", \"not-met\"]\nevidence = [\"informative\", \"inconclusive\"]\n");
+    assert!(labels(&p).is_empty(), "{:?}", labels(&p));
+    let rev = p.rev("T001");
+    p.ok(&["set", "T001", "outcome.labels.evidence=inconclusive", "outcome.labels.procedure=as-planned", "--expect", &rev]);
+    let found = envelope(&p.run(&["find", r#"{"outcome.labels.evidence": "inconclusive"}"#, "--json"]));
+    assert_eq!(found["result"][0]["id"], "T001", "the question the issue could not ask of the store");
+    assert_eq!(found["result"][0]["outcome"]["labels"]["criterion"], "not-met");
+
+    // a label or facet outside the vocabulary warns, and never blocks the write
+    let rev = p.rev("T001");
+    p.ok(&["set", "T001", "outcome.labels.criterion=sort-of", "outcome.labels.mood=good", "--expect", &rev]);
+    let mut got = labels(&p);
+    got.sort();
+    assert_eq!(got, [("warning".into(), "outcome.labels.criterion".into()), ("warning".into(), "outcome.labels.mood".into())]);
+    // but the shape is a field like any other
+    assert_eq!(p.set("T001", &["outcome.labels=[a, b]"]).status.code(), Some(4));
+    let schema = envelope(&p.run(&["schema", "thread", "--json"]));
+    let outcome = schema["result"]["fields"].as_array().unwrap().iter().find(|f| f["name"] == "outcome").unwrap().clone();
+    let labels_field = outcome["properties"].as_array().unwrap().iter().find(|f| f["name"] == "labels").unwrap().clone();
+    assert_eq!(labels_field["type"], "mapping");
+    assert_eq!(labels_field["properties"][0]["name"], "criterion");
+    assert_eq!(schema["result"]["vocabularies"]["outcome_labels"]["evidence"], serde_json::json!(["informative", "inconclusive"]));
+
+    p.append_config("[outcome_labels.bad]\nx = 1\n");
+    assert_eq!(p.code(&["check"]), Some(1), "a facet is a list of labels");
+}
+
+#[test]
 fn show_refs_expands_one_hop_without_naming_what_it_cannot_read() {
     let p = Proj::new();
     p.append_config("[[sources]]\nname = \"decision\"\nglob = \"d/*.md\"\nid = \"^D[0-9]{3}$\"\n");

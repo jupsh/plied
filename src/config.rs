@@ -6,6 +6,7 @@
 //! different policy. The file is part of the trust boundary: `literature.image_command` runs
 //! whatever it names.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -166,6 +167,9 @@ pub struct Config {
     pub lease_minutes: i64,
     /// action kinds a review may name (`kind` or `kind:instance`); None: any
     pub action_kinds: Option<Vec<String>>,
+    /// `[outcome_labels]`: facet → the labels a closed thread's `outcome.labels` may give it (§3.3);
+    /// None: no vocabulary, so any label is a warning
+    pub outcome_labels: Option<BTreeMap<String, Vec<String>>>,
     /// days a cached revision's content is kept after it was last read or written
     pub revision_days: i64,
     pub hard_exclude: Vec<String>,
@@ -442,6 +446,8 @@ const KEYS: &[(&str, &[&str])] = &[
     ("checks", &["approve_authorities", "actors", "commitment_phrases", "commitments_since", "action_kinds"]),
     ("messages", &["lease_minutes"]),
     ("runtime", &["revision_days"]),
+    // facets are the project's own names, checked when the table is read
+    ("outcome_labels", &[]),
 ];
 const ID_KEYS: &[&str] = &["dir", "prefix", "width"];
 
@@ -455,6 +461,9 @@ fn known_keys(data: &Table) -> Res<()> {
             _ => vec![],
         };
         for (w, t) in tables {
+            if *table == "outcome_labels" {
+                continue;
+            }
             for (k, v) in t {
                 if !keys.contains(&k.as_str()) {
                     return Err(unknown(&w, k));
@@ -596,6 +605,25 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
             return Err(err(format!("checks.action_kinds: {k:?} is not a kind (no spaces or `:`)")));
         }
     }
+    let outcome_labels = match data.get("outcome_labels") {
+        None => None,
+        Some(T::Table(facets)) => {
+            let mut out = BTreeMap::new();
+            let name = Regex::new(r"^[A-Za-z_][A-Za-z0-9_-]*$").unwrap();
+            for (facet, _) in facets {
+                if !name.is_match(facet) {
+                    return Err(err(format!("outcome_labels.{facet}: a facet is a name of letters, digits, `_` and `-`")));
+                }
+                let labels = get_strs(facets, facet, None, "outcome_labels.")?.unwrap_or_default();
+                if labels.is_empty() || labels.iter().any(|l| l.trim().is_empty() || l.trim() != l) {
+                    return Err(err(format!("outcome_labels.{facet}: expected a nonempty list of labels, none blank or padded")));
+                }
+                out.insert(facet.clone(), labels);
+            }
+            Some(out)
+        }
+        Some(v) => return Err(err(format!("outcome_labels: expected a table of facets, got {}", got(v)))),
+    };
     let revision_days = match runtime.get("revision_days") {
         None => 14,
         Some(T::Integer(i)) if *i >= 0 => *i,
@@ -646,6 +674,7 @@ pub fn load(path: &Path, base: Option<&Path>) -> Res<Config> {
         commitments_since: since,
         lease_minutes: get_positive(&msgs, "lease_minutes", 30, "messages.")?,
         action_kinds,
+        outcome_labels,
         revision_days,
         hard_exclude: vec![".git/**".into(), "**/.git/**".into()],
         root,

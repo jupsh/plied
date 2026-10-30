@@ -421,6 +421,12 @@ project accepts, in the decider's words, then set `answered_by` to that
 record. If you have no way to record it (a side conversation without tools),
 say so and ask for it to be sent where it can be.
 
+If the project configures `[outcome_labels]` (`context` lists them), label
+each facet as it truly stands, in the same write as the close
+(`outcome.labels.evidence=inconclusive`). Facets are separate on purpose: a
+run can follow its plan, miss its criterion and still settle nothing, and
+a null that settles nothing is not `informative`.
+
 ## Reusing a result: check its scope
 
 Before using an earlier outcome to settle a new task, read the cited evidence
