@@ -28,9 +28,35 @@ along the way, questions waiting on authority, and messages to whoever is on a
 node. Records are plain files, but change them through `plied`: each write is
 checked, appends a history line, and names the revision it was made against.
 
+## A task, start to finish
+
+1. **Orient** (below): identity and a session that stays the same for every
+   command, `context`, a baseline `check`.
+2. **Read before acting:** `show` the node (keep its revision), its
+   `messages` and `review`; then `claim` it.
+3. **Write as you go,** each write against the revision you read (*Writes*).
+   Note where unfinished work lives as soon as you park it.
+4. **Gate governed actions:** before a step a commitment covers,
+   `review NODE --action kind:instance --gate`; record a disposition for that
+   exact action; take the step only once the gate passes (*Commitments*).
+5. **Close** with a quoted outcome and set each commitment you met to
+   `fulfilled` with `resolved_by` naming the record that shows it
+   (*Closing*). Commit the record files as the project does (*Records in git*).
+6. **Hand off:** note what remains, `check`, `release --this-session`
+   (*Before you hand off*).
+
+The other sections (scan triage, stale warnings, controls before a null,
+reusing a result, summaries) apply when you meet those situations.
+
 ## Participants with limited record authority
 
-Read the project's authority rules before following the authoring guidance.
+plied does not hold your project's authority rules: they live in the
+project's own instructions (an AGENTS.md or CLAUDE.md, a contributing guide,
+the task you were given). `context` shows only which authorities may approve
+(`approve_authorities`). If the instructions don't say what you may write,
+ask before your first write when you can; when you can't, keep your writes to
+the node you were given and record what you did and why.
+
 If your role allows communication and presence but reserves record edits and
 dispositions to a lead, use this compact path:
 
@@ -54,10 +80,17 @@ permission and authority to edit tracked records are separate.
 
 ```sh
 export PLIED_AGENT=your-name          # or pass --as on every command
-export PLIED_SESSION="$(date -u +%Y%m%dT%H%M%SZ)-$$"  # unique to this shell session
+export PLIED_SESSION="${{PLIED_SESSION:-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')-$(date -u +%Y%m%d)}}"
 plied context --json                 # selected store, blockers, identity and vocabularies
 plied schema thread --json           # fields, required conditions and example records
 ```
+
+History lines and `who` show a session's first 8 characters, so start it
+with something unique (here, random hex). It must stay the same for every
+command of the session: if each command runs in a fresh shell, generate it
+once and save it (for example in a file you source), never per command.
+Under Claude Code, `CLAUDE_CODE_SESSION_ID` is used when `PLIED_SESSION` is
+unset.
 
 Choose the actual node named in your task; use `frontier`/`tree` if no node
 was supplied. Below, `NODE` means that actual ID, never an assumed first ID.
@@ -313,6 +346,27 @@ whoever is on it now plus subscribers; recipients are fixed at send time,
 and retrying with the same `--id` is recorded once. `inbox` marks messages
 read (`--peek` does not); `ack` is a receipt, never an approval.
 
+Claims are not exclusive. `claim` and `show` list the others on the node:
+someone else's live claim means they may be working there too, so read
+`messages` and message the node before overlapping their work. Earlier
+messages on a node are context for whoever takes it up. Act on one
+addressed to someone else only when it falls within your task, and say so
+in a reply (`--reply-to`).
+
+## Records in git
+
+plied writes the canonical checkout (the main worktree), whichever worktree
+you run it from. Do code work on a branch in a separate worktree
+(`git worktree add`), not by switching the canonical checkout's branch:
+uncommitted record changes would follow you onto the code branch, and a
+configured `canonical_branch` refuses writes while the canonical checkout is
+elsewhere. Commit record changes under the record root (`plied/` by default)
+in the canonical checkout, apart from code commits, as the project's commit
+rules say; some projects leave that commit to a person, and then you say in
+your handoff that record changes are uncommitted. `plied guard install`
+refuses record commits from other worktrees and record content plied didn't
+write; `plied guard range BASE HEAD` finds record changes on a code branch.
+
 ## Closing, questions, authority
 
 When authoring a question, use existing `options`, `raised`, `nodes`, `links`
@@ -325,7 +379,13 @@ Closing records what happened — it is not success, and it approves nothing
 downstream. A closed thread needs `outcome.quote` quoted (as for `wording`)
 from `outcome.ref`, plus `carries` for problems it leaves open. Set them in
 the same write as the status — `status=closed` alone is refused (exit 4):
-`plied set T001 status=closed 'outcome.quote=…' outcome.ref=D150 --expect <rev> --why "…"`. A question is
+`plied set T001 status=closed 'outcome.quote=…' outcome.ref=D150 --expect <rev> --why "…"`.
+`outcome.ref` names the record that holds the result: a decision, a linked
+results record, or another thread whose text states it. A thread quoting a
+note it just wrote on itself shows only that you said so; when nothing
+better exists, make that note say where the evidence is (a commit, a test
+run's output). A fulfilled commitment's `resolved_by` likewise names the
+record that shows it was met. A question is
 answered only by `answered_by` naming a record with the authority and scope
 for it, just as `approval.by` is checked the same way. An answer you hear in
 conversation is not yet an answer: get it written into a decision record the
@@ -424,7 +484,9 @@ A disposition can record evidence revisions actually read with
 `dispose ... --read ID@FULL_SHA` (repeat for each read). Take every full SHA from
 the same `show --json` that supplied the text you examined. Changed evidence is
 reported by `check` and `review`; a history note cannot clear it. Read the changed
-evidence and append a new disposition. Pins do not retain evidence bytes and
+evidence and append a new disposition. Pin the evidence you judged, not the
+node you are about to write: your own next note changes a pinned node's
+bytes, and `check` then reports that input as changed. Pins do not retain evidence bytes and
 do not change the gate's existing decision rules.
 
 ## Exit codes

@@ -113,6 +113,7 @@ enum Cmd {
     Note {
         id: String,
         text: String,
+        /// the revision you read (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
         #[command(flatten)]
@@ -123,6 +124,7 @@ enum Cmd {
         id: String,
         /// the new content (- for stdin)
         file: String,
+        /// the revision you read (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
         #[arg(long)]
@@ -269,18 +271,24 @@ enum Cmd {
     },
     /// record a commitment's disposition for an action
     Dispose {
+        /// the commitment
         id: String,
+        /// the exact action this disposition is for, `kind` or `kind:instance` (the gate compares it exactly)
         #[arg(long)]
         action: String,
+        /// satisfied, acting, not-triggered, not-applicable or blocks (only blocks holds the gate)
         #[arg(long)]
         disposition: String,
+        /// what you checked, in words a later reader can verify
         #[arg(long)]
         because: String,
-        #[arg(long)]
+        /// a record or other reference backing the disposition (text, not checked)
+        #[arg(long = "ref")]
         ref_: Option<String>,
         /// exact evidence bytes you read; repeat for each input (never inferred from --ref)
         #[arg(long = "read", value_name = "ID@FULL_REV")]
         read: Vec<String>,
+        /// the commitment's revision, as you read it (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
         #[command(flatten)]
@@ -652,14 +660,24 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             let st = ctx.store()?;
             let r = st.get(node).ok_or_else(|| Fail::new(format!("no record {node}")))?;
             let c = ctx.messages().claim(node, &who.agent, who.session.as_deref(), *ttl)?;
-            // whoever takes up a node sees what it obliges before acting on it (§12)
+            // whoever takes up a node sees what it obliges before acting on it (§12), and who else is on it:
+            // a claim is presence, not exclusive
             let apps = node_commitments(&st, r);
+            let others: Vec<_> =
+                ctx.messages().claims(false).into_iter().filter(|o| o.node == *node && (o.agent != c.agent || o.session != c.session)).collect();
             if json {
                 let mut o = c.to_json();
                 o.as_object_mut().unwrap().insert("commitments".into(), commitments_json(&apps));
+                o.as_object_mut().unwrap().insert("others".into(), Value::Array(others.iter().map(|o| o.to_json()).collect()));
                 out_json(&o);
             } else {
                 outln!("{} is on {node} until {} UTC (renewed by the hook, or claim again)", who.agent, c.expires().format("%Y-%m-%d %H:%M"));
+                if !others.is_empty() {
+                    outln!("Also on {node} (claims are presence, not exclusive; read `plied messages {node}` before overlapping):");
+                    for o in &others {
+                        outln!("  {}", lease_text(o));
+                    }
+                }
                 if !apps.is_empty() {
                     outln!("Commitments that apply (review before acting: `plied review {node}`):");
                     outln!("{}", commitment_lines(&apps).join("\n"));
@@ -694,8 +712,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
                 ));
             } else {
                 for c in &cs {
-                    let s = c.session.as_ref().map(|s| format!(" session {}", doc::take(s, 8))).unwrap_or_default();
-                    outln!("{:6} {}{s}, since {}, lease until {} UTC", c.node, c.agent, c.since, c.expires().format("%H:%M"));
+                    outln!("{:6} {}", c.node, lease_text(c));
                 }
                 if cs.is_empty() {
                     outln!("nobody has a live claim");
@@ -762,6 +779,12 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
         Cmd::Scanned { id, rev, on, because, expect, who } => cmd_scanned(ctx, id, rev, on, because, expect, who, json),
         _ => unreachable!(),
     }
+}
+
+/// A live claim for people: who, which session (its first 8 characters, as in history), and until when.
+fn lease_text(c: &plied::messages::Claim) -> String {
+    let s = c.session.as_ref().map(|s| format!(" (session {})", doc::take(s, 8))).unwrap_or_default();
+    format!("{}{s}, since {}, lease until {} UTC", c.agent, c.since, c.expires().format("%Y-%m-%d %H:%M"))
 }
 
 fn print_updated(id: &str, rev: &str, json: bool, verb: &str) {
@@ -1078,7 +1101,8 @@ fn record_text(ctx: &Ctx, st: &Store, r: &Record) -> Res<String> {
         }
         let claims: Vec<_> = ctx.messages().claims(false).into_iter().filter(|c| c.node == r.id).collect();
         if !claims.is_empty() {
-            l.push(format!("On it now (leases): {}", claims.iter().map(|c| format!("{} until {} UTC", c.agent, c.expires().format("%H:%M"))).collect::<Vec<_>>().join(", ")));
+            l.push("On it now (leases):".into());
+            l.extend(claims.iter().map(|c| format!("  {}", lease_text(c))));
         }
     }
     Ok(l.join("\n"))

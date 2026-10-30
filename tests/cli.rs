@@ -103,6 +103,22 @@ fn claim_and_show_list_the_commitments_that_apply() {
 }
 
 #[test]
+fn claim_says_who_else_is_on_the_node() {
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "Shared work"]);
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["claim", "T001", "--json"])).unwrap();
+    assert_eq!(v["result"]["others"], serde_json::json!([]), "nobody else yet");
+    let out = p.run_as("bob", &["claim", "T001"]);
+    let said = text(&out);
+    assert!(said.contains("Also on T001") && said.contains("alice (session sess1234)"), "{said}");
+    assert!(said.contains(&format!("lease until {}", chrono::Utc::now().format("%Y-%m-%d"))), "a lease shows its date:\n{said}");
+    let v: serde_json::Value = serde_json::from_str(&p.ok(&["claim", "T001", "--json"])).unwrap();
+    let others = v["result"]["others"].as_array().unwrap();
+    assert_eq!(others.len(), 1, "renewing your own claim does not list you: {v}");
+    assert_eq!((others[0]["agent"].as_str(), others[0]["node"].as_str()), (Some("bob"), Some("T001")));
+}
+
+#[test]
 fn next_write_undoes_an_interrupted_one() {
     let p = Proj::new();
     p.ok(&["new", "thread", "--title", "First"]);

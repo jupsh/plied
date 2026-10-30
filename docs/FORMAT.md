@@ -1012,7 +1012,7 @@ string or null. This also appears on full thread records returned by `find`
 | `recover` | `{recovered: "finished", "undone" or null, files}` |
 | `gc` | `{removed}` |
 | `check` | `{diagnostics, errors, warnings, records, linked, config, comparison_basis}`; with `--baseline FILE`, also `comparison`; with `--group-stale`, also `stale_groups` (below) |
-| `claim` | a claim (§6), plus `commitments` as in `show`, empty unless the node is a plied thread or question (added in 0.6.0). Without `--json`, `claim` lists them too. `--ttl` is a positive number of minutes; 0 or absent uses `messages.lease_minutes`, and a negative value is a usage error (exit 2) |
+| `claim` | a claim (§6), plus `commitments` as in `show`, empty unless the node is a plied thread or question (added in 0.6.0), and `others`, the other live claims on the node (another agent, or this agent in another session; added in 0.12.0). Without `--json`, `claim` lists both too. `--ttl` is a positive number of minutes; 0 or absent uses `messages.lease_minutes`, and a negative value is a usage error (exit 2) |
 | `release` | `{released}` |
 | `who` | claims, each with `expires` |
 | `send` | `{event, recorded_now}`; `recorded_now` is false for a retry (§5) |

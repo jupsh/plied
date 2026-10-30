@@ -6,6 +6,16 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Act on the first unfamiliar-agent acceptance run
+  ([#65](https://github.com/jupsh/plied/issues/65)). `claim` lists the other
+  live claims on the node (`others` in JSON), and lease times show their
+  date. `dispose --help` describes every argument, including the
+  dispositions. The skill gains a start-to-finish path, a session id that
+  is unique in its first 8 characters and stable across commands, guidance
+  on committing record files, authority rules, pins, `outcome.ref` and
+  messages addressed to someone else. ONBOARDING-VALIDATION.md records the
+  run.
+
 ## 0.11.0 — 2026-10-29
 
 The record format and JSON envelope remain at version 1. Stores using
