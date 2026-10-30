@@ -6,12 +6,16 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
-Record format and JSON envelope remain at 1. The package version is 0.11.0;
-stores using `reviews.inputs` should set `requires = ">=0.11.0"`.
+## 0.11.0 — 2026-10-29
+
+The record format and JSON envelope remain at version 1. Stores using
+`reviews.inputs` should set `requires = ">=0.11.0"`. A commitment's `nodes`
+attachment no longer makes it stale, so some existing stale warnings go away.
 
 - Fix a scan-review race: `scanned` now compares and captures the linked
   source revision after acquiring the write lock, so a source changed while
   waiting causes a conflict instead of an obsolete scan acknowledgement.
+  ([#86](https://github.com/jupsh/plied/pull/86))
 - Add explicit evidence revisions to dispositions with repeatable
   `dispose --read ID@FULL_SHA256`. Compare the whole read set under the
   transaction lock, including pins appended through generic checked writes.
@@ -43,7 +47,8 @@ stores using `reviews.inputs` should set `requires = ">=0.11.0"`.
   News about an attached thread or question no longer makes every attached
   commitment stale. Direct mentions, explicit evidence links and a question's
   `nodes` still count; commitment applicability and gates are unchanged.
-  ([#75](https://github.com/jupsh/plied/issues/75))
+  ([#75](https://github.com/jupsh/plied/issues/75),
+  [#76](https://github.com/jupsh/plied/pull/76))
 
 ## 0.10.0 — 2026-10-28
 
