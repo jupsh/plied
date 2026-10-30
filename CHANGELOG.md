@@ -6,6 +6,13 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Say when plied changed under a session. Each command run in a session
+  compares the running plied version and the store's `requires` with what
+  that session first saw, and notes a change once, pointing to
+  `plied skill`. The agent hook puts the same note in the agent's context,
+  and `context` reports the baseline as `session_seen`.
+  ([#89](https://github.com/jupsh/plied/issues/89))
+
 ## 0.11.0 — 2026-10-29
 
 The record format and JSON envelope remain at version 1. Stores using
