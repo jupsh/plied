@@ -27,6 +27,7 @@ jobs:
           cargo test --locked --example related
           cargo build --locked --example related
           python3 examples/related/test_related.py --plied "$PWD/target/debug/plied" --related "$PWD/target/debug/examples/related"
+          python3 examples/reconcile/test_reconcile.py --plied "$PWD/target/debug/plied"
   pdf:
     runs-on: ubuntu-latest
     steps:

@@ -6,6 +6,12 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Add a report-only reconciler example (`examples/reconcile`): it checks a
+  ledger of linked records against an independently defined, versioned
+  eligibility list, and reports missing, duplicate, ineligible and malformed
+  entries with their revisions. It uses only `find --json`; no record or
+  contract changes. ([#33](https://github.com/jupsh/plied/issues/33))
+
 ## 0.11.0 — 2026-10-29
 
 The record format and JSON envelope remain at version 1. Stores using
