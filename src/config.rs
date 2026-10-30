@@ -201,6 +201,30 @@ impl Config {
         (!kinds.iter().any(|k| k == kind)).then(|| format!("action {action:?} has kind {kind:?}, not one of checks.action_kinds ({})", kinds.join(", ")))
     }
 
+    /// The usage error for an action `checks.action_kinds` does not allow, if it does not. Adding a
+    /// kind is a change to plied.toml, which the caller may have no authority to make, so the
+    /// refusal says exactly what to ask for, in text and in `detail` (FORMAT.md §12).
+    pub fn action_refusal(&self, action: &str) -> Option<Fail> {
+        let problem = self.action_problem(action)?;
+        let kinds = self.action_kinds.as_deref().unwrap_or_default();
+        let kind = Config::action_kind(action);
+        let mut proposed = kinds.to_vec();
+        proposed.push(kind.to_string());
+        let line = format!("action_kinds = {}", T::from(proposed.clone()));
+        let msg = format!(
+            "{problem}. Action kinds are the project's vocabulary, set under [checks] in {}. Until that file allows this kind, \
+             plied can neither gate this action nor record a disposition for it. If no listed kind fits the step, ask whoever \
+             maintains the file for:\n  {line}\n`plied review <node> --action {action}` without --gate shows which commitments \
+             would govern it.",
+            self.path.display()
+        );
+        let detail = serde_json::json!({
+            "action": action, "kind": kind, "action_kinds": kinds,
+            "config": {"path": self.path, "key": "checks.action_kinds", "proposed": proposed},
+        });
+        Some(Fail::code(crate::error::EXIT_USAGE, msg).with_detail(detail))
+    }
+
     pub fn kind(&self, kind: OwnKind) -> &Kind {
         self.kinds.iter().find(|k| k.kind == kind).expect("every kind is configured")
     }

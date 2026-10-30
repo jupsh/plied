@@ -307,9 +307,10 @@ impl<'a> Writer<'a> {
                 what = if assignments.is_empty() { String::new() } else { apply_assignments(&mut meta, assignments)? };
             }
             if let Some(m) = mutate.as_deref_mut() {
+                // what `mutate` did comes first, so a scoped review leads its line (§3.5)
                 let w = m(store, &mut meta)?;
                 if !w.is_empty() {
-                    what = w;
+                    what = if what.is_empty() { w } else { format!("{w}; {what}") };
                 }
             }
             if let Some(note) = note {
