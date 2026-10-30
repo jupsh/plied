@@ -115,7 +115,10 @@ impl<'a> Writer<'a> {
                 }
             }
             if let (Some(old), Some(updated)) = (store.get(&ch.rid), proposed.get(&ch.rid)) {
-                for field in ["reviews", "scanned"] {
+                if let Some(problem) = outcome_dropped(old, updated) {
+                    new.push(check::Problem::error_on("outcome-kept", &self.repo.rel(&ch.path), "outcome", problem));
+                }
+                for field in ["reviews", "scanned", "prior_outcomes"] {
                     let previous = old.meta.get(field).map(Node::items).unwrap_or_default();
                     let next = updated.meta.get(field).map(Node::items).unwrap_or_default();
                     if !next.starts_with(previous) {
@@ -327,6 +330,28 @@ impl<'a> Writer<'a> {
         let out = self.transaction(policy, library, &mut build)?;
         out.into_iter().next().map(|(_, rev)| rev).ok_or_else(|| Fail::new("nothing written"))
     }
+}
+
+/// A write that clears or changes a thread's outcome must keep the old one in `prior_outcomes`, appended
+/// in the same write (§11), so a conclusion is never lost from the record that reached it.
+fn outcome_dropped(old: &Record, new: &Record) -> Option<String> {
+    let pair = |r: &Record| match r.meta.get("outcome") {
+        Some(Node::Map(o)) => Some((crate::doc::text(o, "quote").unwrap_or_default(), crate::doc::text(o, "ref").unwrap_or_default())),
+        _ => None,
+    };
+    let before = pair(old).filter(|(q, f)| !q.is_empty() || !f.is_empty())?;
+    if pair(new).as_ref() == Some(&before) {
+        return None;
+    }
+    let kept = |r: &Record| r.meta.get("prior_outcomes").map(Node::items).unwrap_or_default().to_vec();
+    let (was, now) = (kept(old), kept(new));
+    let appended = now.get(was.len()..).unwrap_or_default();
+    let labels = old.meta.get("outcome").and_then(Node::map).and_then(|m| m.get("labels"));
+    let keeps = appended.iter().filter_map(Node::map).any(|m| {
+        (crate::doc::text(m, "quote").unwrap_or_default(), crate::doc::text(m, "ref").unwrap_or_default()) == before
+            && m.get("labels") == labels
+    });
+    (!keeps).then(|| "this write would clear or change outcome without keeping it in prior_outcomes; use `plied reopen`".to_string())
 }
 
 fn why_suffix(why: Option<&str>) -> String {

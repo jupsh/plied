@@ -136,6 +136,7 @@ pub fn run(store: &Store, inputs: &Inputs) -> Vec<Problem> {
     if inputs.warnings {
         dates(store, &mut p);
         stale(store, &mut p);
+        withdrawals(store, &mut p);
         supersessions(store, &mut p);
         unrecorded_commitments(store, &mut p);
         unlinked(store, &mut p);
@@ -304,6 +305,7 @@ fn authority(store: &Store, by: &Node, node: &str, at: &str, p: &mut Report, wha
 }
 
 fn thread(store: &Store, r: &Record, at: &str, p: &mut Report) {
+    prior_outcomes(store, r, at, p);
     // an invalid status skips only the checks that depend on it
     let m = &r.meta;
     let status = r.status();
@@ -625,6 +627,75 @@ fn dates(store: &Store, p: &mut Report) {
                 let d = r.date(f).map(|d| d.to_string()).unwrap_or_default();
                 let what = if f == "due" { format!("due {d} has passed") } else { format!("revisit_on {d} has come, and it is still {}", r.state_str().unwrap_or_default()) };
                 p.warn("date", &at, what);
+            }
+        }
+    }
+}
+
+/// `prior_outcomes` items (§3.3). Their `ref` is a snapshot, so it is not required to exist now; a
+/// `replaced_by` names what replaces the outcome, so it is.
+fn prior_outcomes(store: &Store, r: &Record, at: &str, p: &mut Report) {
+    for (i, item) in r.meta.get("prior_outcomes").map(Node::items).unwrap_or_default().iter().enumerate() {
+        let Some(m) = item.map() else { continue };
+        if let Some(labels) = doc::set(m, "labels") {
+            let subject = format!("prior_outcomes[{i}].labels");
+            match labels {
+                Node::Map(facets) => {
+                    for (facet, label) in facets {
+                        if label.str().is_none() {
+                            let field = format!("{subject}.{facet}");
+                            p.err("field", at, &field, format!("{field} must be one label (text)"));
+                        }
+                    }
+                }
+                _ => p.err("field", at, &subject, format!("{subject} must be a mapping of facet to label")),
+            }
+        }
+        for f in ["quote", "ref", "scope", "because"] {
+            if doc::set(m, f).is_none() {
+                p.err("required", at, &format!("prior_outcomes[{i}].{f}"), format!("prior_outcomes[{i}] needs {f}"));
+            }
+        }
+        if let Some(rev) = doc::set(m, "rev")
+            && !rev.str().is_some_and(crate::review::full_revision)
+        {
+            p.err("field", at, &format!("prior_outcomes[{i}].rev"), format!("prior_outcomes[{i}].rev must be a full 64-character lowercase SHA-256"));
+        }
+        if let Some(by) = doc::set(m, "replaced_by").map(crate::records::node_ref).filter(|b| !b.is_empty())
+            && store.get(&by).is_none()
+        {
+            p.err("ref", at, &format!("prior_outcomes[{i}].replaced_by:{by}"), missing(store, "replaced_by", &by));
+        }
+    }
+}
+
+/// When a thread's conclusion or its rationale was withdrawn (§3.3, `prior_outcomes`), a record that
+/// references the thread and has not been updated since may rest on it. Reportable, never inferred:
+/// whether it does is for whoever reads the record (§8, `withdrawn`).
+fn withdrawals(store: &Store, p: &mut Report) {
+    let mut withdrawn: HashMap<&str, (chrono::NaiveDateTime, String, String)> = HashMap::new();
+    for t in store.own(Some(OwnKind::Thread)) {
+        for item in t.meta.get("prior_outcomes").map(Node::items).unwrap_or_default().iter().filter_map(Node::map) {
+            let scope = doc::text(item, "scope").unwrap_or_default();
+            let Some(when) = doc::text(item, "at").and_then(|a| chrono::NaiveDateTime::parse_from_str(a.trim(), "%Y-%m-%d %H:%M UTC").ok()) else { continue };
+            if matches!(scope.as_str(), "conclusion" | "rationale") && withdrawn.get(t.id.as_str()).is_none_or(|(w, _, _)| when > *w) {
+                withdrawn.insert(&t.id, (when, scope, doc::text(item, "quote").unwrap_or_default()));
+            }
+        }
+    }
+    if withdrawn.is_empty() {
+        return;
+    }
+    for r in store.own(None) {
+        let Some(last) = r.last_update() else { continue };
+        let mut seen = HashSet::new();
+        for (field, id) in r.refs() {
+            let Some((when, scope, quote)) = withdrawn.get(id.as_str()).filter(|_| field != "parent" && id != r.id) else { continue };
+            if last.naive_utc() < *when && seen.insert(id.clone()) {
+                let what = if scope == "conclusion" { "its conclusion no longer stands" } else { "its quoted support does not establish its conclusion" };
+                p.warn_on("withdrawn", &rel(&store.cfg.base, &r.path), &id, format!(
+                    "{field} {id}: on {} UTC its outcome (“{}”) was withdrawn: {what}. Read it, then note whether this record relied on it",
+                    when.format("%Y-%m-%d %H:%M"), crate::doc::take(quote, 120)));
             }
         }
     }
