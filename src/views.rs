@@ -22,6 +22,56 @@ fn field_cell(r: &Record, key: &str) -> String {
     cell(&doc::text(&r.meta, key).unwrap_or_default())
 }
 
+/// The linked records `r` references from sources that list `show_fields` (FORMAT.md §4), in
+/// reference order: each with where it came from (source, path, revision, the fields referencing it)
+/// and its status and listed fields as the record states them, null when absent. Orientation only:
+/// nothing here is interpreted, and a value such as a claim belongs to the linked system, not plied.
+pub fn linked_work(store: &Store, r: &Record) -> Vec<serde_json::Value> {
+    let mut order: Vec<String> = vec![];
+    let mut via: HashMap<String, Vec<&'static str>> = HashMap::new();
+    for (field, id) in r.refs() {
+        let fields = via.entry(id.clone()).or_default();
+        if fields.is_empty() {
+            order.push(id);
+        }
+        if !fields.contains(&field) {
+            fields.push(field);
+        }
+    }
+    let value = |l: &Record, field: &str| l.meta.get(field).map_or(serde_json::Value::Null, Node::to_json);
+    order
+        .iter()
+        .filter_map(|id| {
+            let l = store.get(id).filter(|l| !l.is_own())?;
+            let src = l.source().filter(|s| !s.show_fields.is_empty())?;
+            let fields: serde_json::Map<String, serde_json::Value> = src.show_fields.iter().map(|f| (f.clone(), value(l, f))).collect();
+            Some(serde_json::json!({
+                "record": l.id, "source": src.name, "path": crate::fsx::rel(&store.cfg.base, &l.path), "rev": l.rev,
+                "via": via[id], "status": src.status_field.as_deref().map_or(serde_json::Value::Null, |f| value(l, f)), "fields": fields,
+            }))
+        })
+        .collect()
+}
+
+/// One `linked_work` item as a line for people: `?` marks a field the record does not state.
+pub fn linked_work_line(item: &serde_json::Value) -> String {
+    let shown = |v: &serde_json::Value| match v {
+        serde_json::Value::Null => "?".to_string(),
+        serde_json::Value::String(s) => short(s, 60),
+        other => short(&other.to_string(), 60),
+    };
+    let s = |k: &str| item[k].as_str().unwrap_or_default().to_string();
+    let via: Vec<&str> = item["via"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect();
+    let mut parts = vec![];
+    if !item["status"].is_null() {
+        parts.push(format!("status={}", shown(&item["status"])));
+    }
+    for (k, v) in item["fields"].as_object().into_iter().flatten() {
+        parts.push(format!("{k}={}", shown(v)));
+    }
+    format!("{} ({}, via {}, rev {}): {}", s("record"), s("source"), via.join(", "), take(&s("rev"), 12), parts.join(" "))
+}
+
 /// Bounded orientation aid. The full author-written section remains in the record.
 pub fn summary_preview(r: &Record) -> Option<String> {
     r.body_summary().map(|s| short(&s, 240))

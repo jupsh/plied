@@ -688,8 +688,11 @@ pub fn freshness(store: &Store, n: &Record) -> Vec<StaleCause> {
     let watched: Vec<_> = refs.iter()
         .filter(|(field, _)| !n.is_resolved() && *field != "parent" && !(n.is(OwnKind::Commitment) && *field == "nodes"))
         .collect();
+    // a scoped review covers the bytes it names: a later edit of that record makes it news again
+    let reviewed = n.scoped_reviews();
+    let covered = |r: &Record| reviewed.iter().any(|(id, rev)| *id == r.id && r.rev.starts_with(rev.as_str()));
     let mut causes = vec![];
-    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last)) {
+    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last) && !covered(r)) {
         let mentioned = store.mentions(&r.text);
         let named = mentioned.contains(&n.id);
         let mut via: Vec<_> = watched.iter().filter(|(_, id)| mentioned.contains(id)).map(|(field, id)| StaleLink { field: (*field).into(), id: id.clone() }).collect();

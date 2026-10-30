@@ -653,6 +653,9 @@ fn context_and_show_expose_node_conversation_and_presence_without_sealed_records
     assert_eq!(r["vocabularies"]["action_kinds"], serde_json::json!(["run", "report"]));
     assert_eq!(r["identity"]["agent"], "alice");
     assert_eq!(r["identity"]["session"], "sess12345678");
+    assert_eq!(r["identity"]["session_source"], "PLIED_SESSION");
+    let flagged = envelope(&p.run(&["context", "--session", "other", "--json"]));
+    assert_eq!(flagged["result"]["identity"]["session_source"], "--session");
     assert_eq!(r["node"]["messages_args"], serde_json::json!(["messages", "T001"]));
     assert_eq!(r["node"]["claims"][0]["agent"], "alice");
     assert!(!context.to_string().contains("T002"));
@@ -1067,7 +1070,7 @@ fn show_refs_expands_one_hop_without_naming_what_it_cannot_read() {
     p.ok(&["new", "question", "--title", "Rerun or ship?", "raised=D001", "nodes=[T001]", "links=[D002, D001, P01]"]);
     p.edit("plied.toml", "sealed = []", "sealed = [\"D002\"]");
 
-    let v = envelope(&p.run(&["show", "Q01", "--refs", "--json"]));
+    let v = envelope(&p.run(&["show", "Q01", "--refs", "--linked", "--freshness", "--summary", "--json"]));
     let refs = &v["result"]["refs"];
     let ids: Vec<&str> = refs["records"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["D001", "T001", "P01"], "reference order, each once");
@@ -1083,6 +1086,104 @@ fn show_refs_expands_one_hop_without_naming_what_it_cannot_read() {
     assert_eq!(refs["unavailable"], serde_json::json!([{"id": "D002", "via": ["links"]}]));
     assert!(!v.to_string().contains("hidden words") && !v.to_string().contains("secret"), "nothing of the sealed record: {v}");
     assert!(envelope(&p.run(&["show", "Q01", "--json"]))["result"].get("refs").is_none(), "opt-in");
+}
+
+#[test]
+fn linked_work_shows_configured_fields_with_their_provenance() {
+    let p = Proj::new();
+    p.append_config(concat!(
+        "[[sources]]\nname = \"backlog\"\nglob = \"backlog/*.md\"\nid = \"^B[0-9]{3}$\"\nstatus = \"status\"\n",
+        "show_fields = [\"priority\", \"size\", \"claimed_by\"]\n",
+        "[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\n",
+    ));
+    std::fs::create_dir_all(p.path().join("backlog")).unwrap();
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    std::fs::write(p.path().join("backlog/B001.md"), "---\nid: B001\ntitle: parser\nstatus: in-progress\npriority: P1\nclaimed_by: carol\n---\n").unwrap();
+    std::fs::write(p.path().join("backlog/B002.md"), "---\nid: B002\ntitle: hidden\nstatus: open\n---\n").unwrap();
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: a decision\n---\n").unwrap();
+    p.ok(&["new", "thread", "--title", "Fix parser", "backlog=B001", "links=[B001, D001, B002]", "actor=alice", "next=1"]);
+    p.ok(&["claim", "T001"]);
+    p.edit("plied.toml", "sealed = []", "sealed = [\"B002\"]");
+
+    let v = envelope(&p.run(&["frontier", "--linked", "--json"]));
+    let row = &v["result"]["queues"]["alice"][0];
+    assert_eq!(row["claims"][0]["agent"], "alice", "plied's own claims, apart from the linked record's");
+    // only the source that lists show_fields takes part; the sealed record is not loaded, so not shown
+    assert_eq!(row["linked"].as_array().unwrap().len(), 1, "{row}");
+    let item = &row["linked"][0];
+    assert_eq!(item["record"], "B001");
+    assert_eq!(item["source"], "backlog");
+    assert_eq!(item["path"], "backlog/B001.md");
+    assert_eq!(item["rev"], p.rev("B001"));
+    assert_eq!(item["via"], serde_json::json!(["backlog", "links"]));
+    assert_eq!(item["status"], "in-progress");
+    assert_eq!(item["fields"], serde_json::json!({"priority": "P1", "size": null, "claimed_by": "carol"}), "an unstated field is null, never guessed");
+    let shown = envelope(&p.run(&["show", "T001", "--linked", "--json"]));
+    assert_eq!(shown["result"]["linked"], row["linked"]);
+    assert!(envelope(&p.run(&["frontier", "--json"]))["result"]["queues"]["alice"][0].get("linked").is_none(), "opt-in");
+    let text = p.ok(&["frontier", "--linked"]);
+    assert!(text.contains("claimed_by=carol") && text.contains("size=?") && text.contains("not plied claims"), "{text}");
+
+    p.append_config("[[sources]]\nname = \"bad\"\nglob = \"x/*.md\"\nid = \"^X\"\nshow_fields = \"priority\"\n");
+    assert_eq!(p.code(&["frontier"]), Some(1), "show_fields is a list of strings");
+}
+
+#[test]
+fn a_scoped_review_clears_only_the_revisions_it_names() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    p.ok(&["new", "thread", "--title", "Fit"]);
+    // backdate the thread's only history line, so that a write today is newer than the records
+    let path = p.path().join("plied/threads/T001-fit.md");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let at = text.find("\n- ").unwrap() + 3;
+    std::fs::write(&path, format!("{}2000-01-01 00:00{}", &text[..at], &text[at + 16..])).unwrap();
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: mine\ndate: 2001-01-01\n---\nT001 changes method.\n").unwrap();
+    std::fs::write(p.path().join("log/D002.md"), "---\nid: D002\ntitle: theirs\ndate: 2001-01-02\n---\nT001 needs another look.\n").unwrap();
+    std::fs::write(p.path().join("log/D003.md"), "---\nid: D003\ntitle: unrelated\ndate: 2001-01-03\n---\nNothing here.\n").unwrap();
+    let causes = |p: &Proj| -> Vec<String> {
+        envelope(&p.run(&["show", "T001", "--freshness", "--json"]))["result"]["freshness"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["record"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(causes(&p), ["D001", "D002"]);
+    let d1 = p.rev("D001");
+    let note = |p: &Proj, reviewed: &str| p.run(&["note", "T001", "D001 changes the method; T001 is unaffected", "--reviewed", reviewed, "--expect", &p.rev("T001"), "--json"]);
+
+    // refusals: the syntax, a plied record, a revision that is not current
+    assert_eq!(note(&p, "D001").status.code(), Some(2));
+    assert_eq!(note(&p, &format!("T001@{}", p.rev("T001"))).status.code(), Some(1));
+    let refused = note(&p, "D001@deadbeef");
+    assert_eq!(refused.status.code(), Some(3));
+    assert_eq!(envelope(&refused)["error"]["detail"]["id"], "D001");
+
+    // the note vouches for D001 at the revision read, and leaves D002 standing
+    let reviewed = format!("D001@{}", &d1[..8]);
+    let punctuated = p.run_as("worker:one", &["note", "T001", "D001 changes the method; T001 is unaffected", "--reviewed", &reviewed, "--expect", &p.rev("T001"), "--json"]);
+    assert!(punctuated.status.success(), "{}", common::text(&punctuated));
+    assert_eq!(causes(&p), ["D002"]);
+    let shown = p.ok(&["show", "T001"]);
+    assert!(shown.contains(&format!(": reviewed D001@{}; D001 changes the method", &d1[..12])), "{shown}");
+    let stale: Vec<_> = diagnostics(&p).into_iter().filter(|(_, c, _, _)| c == "stale").collect();
+    assert_eq!(stale.len(), 1, "D002 still makes T001 stale: {stale:?}");
+
+    // set can carry a scoped review too; one that names a record not making the node stale says so
+    let rev = p.rev("T001");
+    let out = envelope(&p.run(&["set", "T001", "next=1", "--reviewed", &format!("D003@{}", p.rev("D003")), "--expect", &rev, "--json"]));
+    assert!(out["notes"][0].as_str().unwrap().contains("D003 does not make T001 stale"), "{out}");
+    assert_eq!(causes(&p), ["D002"], "a scoped write moves nothing else on, whatever else it changes");
+
+    // the review covers bytes: an edit to D001 makes it news again
+    p.edit("log/D001.md", "changes method", "changes method again");
+    assert_eq!(causes(&p), ["D001", "D002"]);
+
+    // an ordinary note still vouches for everything newer, as before
+    p.ok(&["note", "T001", "read both", "--expect", &p.rev("T001")]);
+    assert_eq!(causes(&p), Vec::<String>::new());
 }
 
 // ------------------------------------------------------------------------ §7 the view
@@ -1216,9 +1317,43 @@ fn action_kinds_restrict_new_reviews_and_warn_about_old_ones() {
     assert_eq!(p.code(&["dispose", "P01", "--action", "rollback:1", "--disposition", "satisfied", "--because", "x", "--expect", &rev]), Some(2));
     assert_eq!(gate(&p, "T001", "run:fit-20261024"), Some(6), "a known kind gates as before");
     dispose(&p, "run:fit-20261024", "satisfied");
-    assert_eq!(gate(&p, "T001", "run:fit-20261024"), Some(0));
+    let passed = p.run(&["review", "T001", "--action", "run:fit-20261024", "--gate"]);
+    assert_eq!(passed.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&passed.stderr).contains("gate: passed for run:fit-20261024"), "a pass says so: {}", text(&passed));
     let out = p.ok(&["check"]);
     assert!(out.contains("warning") && out.contains("deploy-friday"), "the old review is a warning, not an error:\n{out}");
+}
+
+#[test]
+fn an_unknown_action_kind_says_what_to_ask_for_and_review_still_previews_it() {
+    let p = two_threads();
+    commitment(&p, &["nodes=[T001]"]);
+    p.append_config("[checks]\naction_kinds = [\"run\", \"publish\"]\n");
+    let refused = p.run(&["review", "T001", "--action", "apply:patch-3", "--gate", "--json"]);
+    assert_eq!(refused.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    let detail = &v["error"]["detail"];
+    assert_eq!(detail["action"], "apply:patch-3");
+    assert_eq!(detail["kind"], "apply");
+    assert_eq!(detail["action_kinds"], serde_json::json!(["run", "publish"]));
+    assert_eq!(detail["config"]["key"], "checks.action_kinds");
+    assert_eq!(detail["config"]["proposed"], serde_json::json!(["run", "publish", "apply"]));
+    assert!(detail["config"]["path"].as_str().unwrap().ends_with("plied.toml"), "{detail}");
+    assert!(v["error"]["message"].as_str().unwrap().contains(r#"action_kinds = ["run", "publish", "apply"]"#), "{v}");
+    let rev = p.rev("P01");
+    let refused = p.run(&["dispose", "P01", "--action", "apply:patch-3", "--disposition", "satisfied", "--because", "x", "--expect", &rev, "--json"]);
+    assert_eq!(refused.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(v["error"]["detail"]["kind"], "apply", "dispose refuses with the same detail");
+
+    // without --gate, review only reads, so it shows what would govern the action once the kind exists
+    let out = p.run(&["review", "T001", "--action", "apply:patch-3", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["result"]["commitments"][0]["id"], "P01");
+    assert_eq!(v["result"]["commitments"][0]["governs_action"], true);
+    assert!(v["result"]["gate"].is_null());
+    assert!(v["notes"][0].as_str().unwrap().contains("checks.action_kinds"), "{v}");
 }
 
 // ------------------------------------------------------------------------- dates
