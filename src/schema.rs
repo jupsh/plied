@@ -6,11 +6,12 @@ use crate::records::{Applies, CommitmentState, Disposition, OwnKind, QuestionSta
 pub fn subfields(field: &str) -> Option<&'static [&'static str]> {
     match field {
         "approval" => Some(&["state", "by"]),
-        "outcome" => Some(&["quote", "ref"]),
+        "outcome" => Some(&["quote", "ref", "labels"]),
         "cites" => Some(&["paper", "page", "quote", "kind", "image_checked", "note"]),
         "reviews" => Some(&["action", "disposition", "at", "by", "because", "ref", "inputs"]),
         "reviews.inputs" => Some(&["record", "rev"]),
         "scanned" => Some(&["record", "rev", "at", "by", "because"]),
+        "prior_outcomes" => Some(&["quote", "ref", "labels", "rev", "carries", "scope", "because", "by", "at", "replaced_by"]),
         _ => None,
     }
 }
@@ -18,13 +19,14 @@ pub fn subfields(field: &str) -> Option<&'static [&'static str]> {
 pub fn enums(field: &str) -> &'static [(&'static str, &'static [&'static str])] {
     match field {
         "cites" => &[("kind", &["table", "figure"]), ("image_checked", &["true", "false"])],
+        "prior_outcomes" => &[("scope", &crate::records::PRIOR_SCOPES)],
         _ => &[],
     }
 }
 
 pub fn vocabularies(cfg: Option<&Config>) -> Value {
     json!({"actors": cfg.and_then(|c| c.actors.as_ref()), "action_kinds": cfg.and_then(|c| c.action_kinds.as_ref()),
-        "approve_authorities": cfg.map(|c| &c.approve_authorities)})
+        "approve_authorities": cfg.map(|c| &c.approve_authorities), "outcome_labels": cfg.and_then(|c| c.outcome_labels.as_ref())})
 }
 
 fn targets(field: &str, cfg: Option<&Config>) -> Value {
@@ -41,7 +43,7 @@ fn targets(field: &str, cfg: Option<&Config>) -> Value {
 fn required_when(kind: OwnKind, field: &str) -> Vec<&'static str> {
     match (kind, field) {
         (OwnKind::Thread, "waiting_on") => vec!["status=waiting"],
-        (OwnKind::Thread, "outcome") => vec!["status=closed: quote and ref are required, and quote must match ref"],
+        (OwnKind::Thread, "outcome") => vec!["status=closed: quote and ref are required, and quote must match ref; labels (optional) maps each [outcome_labels] facet to one of its labels"],
         (OwnKind::Thread, "approval") => vec!["when set: state required; state=approved requires by with authority over this record"],
         (OwnKind::Commitment, "resolved_by") => vec!["state is fulfilled, waived, missed, not-triggered or superseded; waived/superseded require linked authority over this commitment"],
         (OwnKind::Commitment, "superseded_by") => vec!["state=superseded"],
@@ -70,13 +72,14 @@ pub fn describe(kind: OwnKind, cfg: Option<&Config>) -> Value {
             let mut values = enums(field).iter().find(|(n, _)| n == name).map_or(Value::Null, |(_, values)| json!(values));
             if full == "approval.state" { values = json!(["approved", "not approved"]); }
             if full == "reviews.disposition" { values = json!(Disposition::ALL); }
-            json!({"name": name, "type": if *name == "page" { "integer" } else if full == "reviews.inputs" { "list" } else { "string" }, "values": values,
-                "required": matches!((*field, *name), ("approval", "state") | ("outcome", "quote" | "ref") | ("cites", "paper" | "page") | ("reviews", "action" | "disposition") | ("scanned", "record" | "rev")),
+            let facets = cfg.and_then(|c| c.outcome_labels.as_ref()).map(|f| f.iter().map(|(facet, labels)| json!({"name": facet, "type": "string", "values": labels, "required": false})).collect::<Vec<_>>());
+            json!({"name": name, "type": if *name == "page" { "integer" } else if matches!(full.as_str(), "reviews.inputs" | "prior_outcomes.carries") { "list" } else if matches!(full.as_str(), "outcome.labels" | "prior_outcomes.labels") { "mapping" } else { "string" }, "values": values,
+                "required": matches!((*field, *name), ("approval", "state") | ("outcome", "quote" | "ref") | ("cites", "paper" | "page") | ("reviews", "action" | "disposition") | ("scanned", "record" | "rev") | ("prior_outcomes", "quote" | "ref" | "scope" | "because")),
                 "references": if kind.ref_fields().contains(&full.as_str()) || full == "scanned.record" { targets(&full, cfg) } else { Value::Null },
                 "properties": if full == "reviews.inputs" { Some(vec![
                     json!({"name": "record", "type": "string", "required": true, "references": targets("reviews.inputs.record", cfg)}),
                     json!({"name": "rev", "type": "sha256", "required": true, "length": 64}),
-                ]) } else { None },
+                ]) } else if full == "outcome.labels" { facets } else { None },
                 "items": if full == "reviews.inputs" { Some("mapping") } else { None }})
         }).collect::<Vec<_>>());
         json!({"name": field, "type": ty, "values": values, "properties": properties,
@@ -84,7 +87,7 @@ pub fn describe(kind: OwnKind, cfg: Option<&Config>) -> Value {
             "references": if reference { targets(field, cfg) } else { Value::Null },
             "required": matches!(*field, "id" | "title") || *field == kind.state_field() || matches!((kind, *field), (OwnKind::Commitment, "wording" | "made") | (OwnKind::Question, "raised")),
             "default": if *field == kind.state_field() { json!("open") } else if *field == "applies" { json!("linked") } else { Value::Null },
-            "required_when": required_when(kind, field), "read_only": *field == "id", "append_only": matches!(*field, "reviews" | "scanned")})
+            "required_when": required_when(kind, field), "read_only": *field == "id", "append_only": matches!(*field, "reviews" | "scanned" | "prior_outcomes")})
     }).collect();
     let thread_id = cfg.map(|c| format!("{}{:0width$}", c.kind(OwnKind::Thread).prefix, 1, width=c.kind(OwnKind::Thread).width)).unwrap_or_else(|| "T001".into());
     let thread = json!({"id": thread_id, "title": "Example task", "status": "open"});

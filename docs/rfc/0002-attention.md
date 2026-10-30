@@ -1,7 +1,7 @@
 # RFC 0002: One acknowledgement model, and fewer ways to fall behind
 
-Status: **draft**. Nothing here is implemented. It builds on proposals that
-are open as pull requests: scoped review notes (#92), kept prior outcomes
+Status: **draft**. The additional changes proposed below are not implemented.
+The baseline features have their own contracts in FORMAT.md: scoped review notes (#92), kept prior outcomes
 and the `withdrawn` warning (#98), linked-work and one-hop orientation views
 (#94, #95), and outcome labels and heading locators (#97, #100).
 
@@ -77,7 +77,11 @@ is a record revision, on any write to the node that holds the warning:
 - `stale`: the linked record's revision (as #92).
 - `withdrawn`: the thread's revision is the wrong unit, since any later edit
   would change it. Name the item instead: `--reviewed T003#prior_outcomes[0]`.
-  The item is append-only, so it never changes.
+  Checked writes preserve the item as an unchanged prefix. That does not
+  establish its identity across direct edits or rewritten git history. The
+  final syntax must also bind the item's content digest and specify the
+  bytes that digest covers; an index alone is not enough. This part needs
+  that design before implementation.
 - `commitment?`: a `scanned` item already is a revision-pinned
   acknowledgement with a reason. Keep `scanned` as the stored form, but
   accept it from `--reviewed` on a thread with a `--because`, so there is
@@ -99,7 +103,10 @@ is uniform, so an agent learns one.
 
 Replace `--summary`, `--freshness`, `--linked` and `--refs` on `show` and
 `frontier` with `--with summary,freshness,linked,refs` (any subset;
-`--with all`), and keep the old flags as aliases for one minor version.
+`--with all`), and retain the old flags as compatibility aliases. Removing
+them would require a separate deprecation plan. A command only accepts the
+views it supports; an unsupported view is a usage error, never silently
+ignored. Default output and existing result keys remain unchanged.
 `check --group-stale` stays: it changes the shape of a different command.
 `plied context` lists the available views so an agent can discover them
 without the skill.
@@ -126,7 +133,7 @@ it matters, before an older teammate's binary meets an unknown field.
 ## Migration
 
 Part 1 is additive JSON. Part 2 extends #92's syntax; old notes keep their
-meaning. Part 3 is opt-in. Part 4 keeps aliases for one minor version.
+meaning. Part 3 is opt-in. Part 4 retains existing flags as compatibility aliases.
 Part 5 can refuse writes in stores whose `requires` is lower than the
 fields they already use; the refusal only applies to writes that add such a
 field, so existing records stay writable, and `check` reports the gap first
@@ -139,7 +146,8 @@ as a warning for one minor version.
 - Under `acknowledge = "named"`, `set next=2` on a stale node leaves it
   stale; a scoped review of one cause leaves the others.
 - A `withdrawn` acknowledgement names an item index and survives later
-  edits to the withdrawn thread.
+  unrelated edits to the withdrawn thread. It must not cover a changed
+  item at the same index after a direct edit or rewritten history.
 - `--with` and the old flags produce identical JSON.
 - A write adding `outcome.labels` under `requires = ">=0.11.0"` is refused,
   and accepted after raising it; a write not touching labels is not.
@@ -151,3 +159,7 @@ as a warning for one minor version.
 - Should `acknowledge = "named"` become the default at the next format?
 - Does `causes` need a bound for diagnostics with very many sources, as the
   human stale preview has, and if so how is the truncation marked?
+
+- Which exact representation does a withdrawn item's digest cover, and
+  how is that digest carried in a history line and checked on later reads?
+  List position is a locator, not a content identity.
