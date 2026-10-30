@@ -12,6 +12,12 @@ are versioned separately from plied itself; see
   `plied skill`. The agent hook puts the same note in the agent's context,
   and `context` reports the baseline as `session_seen`.
   ([#89](https://github.com/jupsh/plied/issues/89))
+- Make an action kind that `checks.action_kinds` refuses recoverable. The
+  usage error from `review --gate` and `dispose` names the config file and
+  key and gives the exact line to ask for; with `--json`, `error.detail`
+  carries the same facts. `review --action` without `--gate` now accepts any
+  kind, with a note, so an agent can see which commitments would govern the
+  step before asking. ([#88](https://github.com/jupsh/plied/issues/88))
 
 ## 0.11.0 — 2026-10-29
 

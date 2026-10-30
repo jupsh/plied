@@ -993,8 +993,9 @@ not:
   `kind` is `general`, `literature`, `policy` or `query`. `message` is free
   text. `detail` is present for a conflict
   (`{"id", "expected", "current"}`, with `current` null when the record is
-  absent) and for a write that would add errors (`{"diagnostics": [...]}`,
-  diagnostics as in §8).
+  absent), for a write that would add errors (`{"diagnostics": [...]}`,
+  diagnostics as in §8), and for an action whose kind `checks.action_kinds`
+  refuses (§12).
 - `notes` lists things worth knowing that are not the result, as text, for
   example that recovery finished an earlier write (§11) or that a read may
   mix old and new files.
@@ -1225,9 +1226,19 @@ change this verdict; `check` reports them separately.
   other action does not count, so a new action name starts without reviews.
 - An action is `kind` or `kind:instance`, with the kind before the first
   `:` (`run:fit-20261024` has kind `run`). When `checks.action_kinds` is
-  set, `review --action` and `dispose --action` refuse any other kind as a
-  usage error (exit 2). The kind is a vocabulary check only: the gate still
-  compares the whole name.
+  set, `review --gate` and `dispose` refuse any other kind as a usage error
+  (exit 2). The kind is a vocabulary check only: the gate still compares the
+  whole name.
+- The refusal says what to ask for, since adding a kind changes
+  `plied.toml`, which is a project decision. With `--json`, its
+  `error.detail` is `{action, kind, action_kinds, config: {path, key,
+  proposed}}`: `key` is `checks.action_kinds`, and `proposed` is the
+  configured list with the refused kind appended. Since 0.12.0, `review
+  --action` without `--gate` only reads, so it accepts any kind, adds a note
+  that the gate and `dispose` would refuse it, and lists the commitments that
+  would govern it once the kind is allowed. (Before 0.12.0, it refused too.)
+  A project that wants every step to be gateable MAY configure a catch-all
+  kind such as `other`; plied gives no kind a special meaning.
 - Every disposition except `blocks` passes, `acting` included. A passing gate
   means each applicable commitment was reviewed for this action. It does not
   mean the obligation was fulfilled, or that the evidence a review relied on

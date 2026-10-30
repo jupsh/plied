@@ -1714,8 +1714,16 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
     if gate && action.is_none() {
         return Err(Fail::code(EXIT_USAGE, "--gate needs --action: a disposition counts only for the action it was recorded for"));
     }
-    if let Some(msg) = action.and_then(|a| ctx.repo.cfg.action_problem(a)) {
-        return Err(Fail::code(EXIT_USAGE, msg));
+    // without --gate, review only reads: an action of an unconfigured kind still shows what would
+    // govern it, which is what the caller needs in order to ask for the kind
+    if let Some(a) = action
+        && let Some(refusal) = ctx.repo.cfg.action_refusal(a)
+    {
+        if gate {
+            return Err(refusal);
+        }
+        let problem = ctx.repo.cfg.action_problem(a).unwrap_or_default();
+        plied::notes::note(format!("{problem}; --gate and dispose refuse this action until plied.toml allows its kind"));
     }
     let st = ctx.store()?;
     for n in nodes {
@@ -1808,8 +1816,8 @@ fn cmd_dispose(ctx: &Ctx, id: &str, action: &str, disposition: &str, because: &s
     if Disposition::parse(disposition).is_none() {
         return Err(Fail::code(EXIT_USAGE, format!("--disposition must be one of {}", Disposition::ALL.join(", "))));
     }
-    if let Some(msg) = ctx.repo.cfg.action_problem(action) {
-        return Err(Fail::code(EXIT_USAGE, msg));
+    if let Some(refusal) = ctx.repo.cfg.action_refusal(action) {
+        return Err(refusal);
     }
     let who = who_of(who_args, true)?;
     let who_s = who.to_string();
