@@ -6,6 +6,13 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Show linked work beside the frontier. A `[[sources]]` entry may list
+  `show_fields`; `frontier --linked` and `show --linked` then list the
+  linked records each plied record references from such sources, with
+  their source, path, revision, referencing fields, status and listed
+  fields (null when unstated). Values are shown, never interpreted.
+  Frontier rows also carry plied's own live `claims`.
+  ([#78](https://github.com/jupsh/plied/issues/78))
 - Act on the first unfamiliar-agent acceptance run
   ([#65](https://github.com/jupsh/plied/issues/65)). `claim` lists the other
   live claims on the node (`others` in JSON), and lease times show their

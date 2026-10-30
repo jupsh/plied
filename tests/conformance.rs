@@ -1059,6 +1059,46 @@ fn a_stale_warning_says_whether_the_node_was_named_and_named_ones_come_first() {
 }
 
 #[test]
+fn linked_work_shows_configured_fields_with_their_provenance() {
+    let p = Proj::new();
+    p.append_config(concat!(
+        "[[sources]]\nname = \"backlog\"\nglob = \"backlog/*.md\"\nid = \"^B[0-9]{3}$\"\nstatus = \"status\"\n",
+        "show_fields = [\"priority\", \"size\", \"claimed_by\"]\n",
+        "[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\n",
+    ));
+    std::fs::create_dir_all(p.path().join("backlog")).unwrap();
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    std::fs::write(p.path().join("backlog/B001.md"), "---\nid: B001\ntitle: parser\nstatus: in-progress\npriority: P1\nclaimed_by: carol\n---\n").unwrap();
+    std::fs::write(p.path().join("backlog/B002.md"), "---\nid: B002\ntitle: hidden\nstatus: open\n---\n").unwrap();
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: a decision\n---\n").unwrap();
+    p.ok(&["new", "thread", "--title", "Fix parser", "backlog=B001", "links=[B001, D001, B002]", "actor=alice", "next=1"]);
+    p.ok(&["claim", "T001"]);
+    p.edit("plied.toml", "sealed = []", "sealed = [\"B002\"]");
+
+    let v = envelope(&p.run(&["frontier", "--linked", "--json"]));
+    let row = &v["result"]["queues"]["alice"][0];
+    assert_eq!(row["claims"][0]["agent"], "alice", "plied's own claims, apart from the linked record's");
+    // only the source that lists show_fields takes part; the sealed record is not loaded, so not shown
+    assert_eq!(row["linked"].as_array().unwrap().len(), 1, "{row}");
+    let item = &row["linked"][0];
+    assert_eq!(item["record"], "B001");
+    assert_eq!(item["source"], "backlog");
+    assert_eq!(item["path"], "backlog/B001.md");
+    assert_eq!(item["rev"], p.rev("B001"));
+    assert_eq!(item["via"], serde_json::json!(["backlog", "links"]));
+    assert_eq!(item["status"], "in-progress");
+    assert_eq!(item["fields"], serde_json::json!({"priority": "P1", "size": null, "claimed_by": "carol"}), "an unstated field is null, never guessed");
+    let shown = envelope(&p.run(&["show", "T001", "--linked", "--json"]));
+    assert_eq!(shown["result"]["linked"], row["linked"]);
+    assert!(envelope(&p.run(&["frontier", "--json"]))["result"]["queues"]["alice"][0].get("linked").is_none(), "opt-in");
+    let text = p.ok(&["frontier", "--linked"]);
+    assert!(text.contains("claimed_by=carol") && text.contains("size=?") && text.contains("not plied claims"), "{text}");
+
+    p.append_config("[[sources]]\nname = \"bad\"\nglob = \"x/*.md\"\nid = \"^X\"\nshow_fields = \"priority\"\n");
+    assert_eq!(p.code(&["frontier"]), Some(1), "show_fields is a list of strings");
+}
+
+#[test]
 fn a_scoped_review_clears_only_the_revisions_it_names() {
     let p = Proj::new();
     p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");

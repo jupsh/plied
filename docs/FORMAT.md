@@ -84,6 +84,7 @@ Regular expressions and templates MUST be checked when the file is loaded.
 | | `id_field`, `title_field` | string | `id`, `title` | frontmatter fields |
 | | `date`, `time`, `status`, `authority`, `scope` | string | none | frontmatter fields holding these |
 | | `scan_commitments`, `require_linked` | boolean | false | warnings, §8 |
+| | `show_fields` | list of strings | `[]` | frontmatter fields shown by `--linked` (§4). Added in 0.12.0 |
 | `access` | `sealed` | list of strings | `[]` | sealed substrings (§9) |
 | | `sealed_file` | string | none | file of sealed substrings, one per line, `#` comments |
 | `search` | `include`, `exclude` | list of strings | `["<root>/**/*.md"]`, `[]` | search allowlist and denylist (§2.2) |
@@ -519,6 +520,21 @@ order:
 | has an empty scope | error |
 | has a scope without the thread, question or commitment | error |
 | anything else | accepted |
+
+**Linked work.** A source that lists `show_fields` (since 0.12.0) is a work
+system whose records orientation can show beside the plied records that
+reference them, so an agent choosing a task need not open each one.
+`frontier --linked` and `show --linked` list, for each displayed record, the
+readable linked records it references (§3.4, through any reference field)
+from such sources, in reference order, each once: `{record, source, path,
+rev, via, status, fields}`. `via` lists the reference fields naming it,
+`status` is the value of the source's `status` field (null when the source
+declares none or the record lacks it), and `fields` maps each listed name to
+the value as the record's frontmatter states it, null when absent. Values are
+shown, never interpreted: an open status is not permission, a priority
+schedules nothing, and an owner or claim field of the linked system is not a
+plied claim (§6), which `frontier` reports separately. A reference to a
+record that is missing or sealed is not listed; `check` reports it.
 
 A warning does not stop the approval, answer or waiver from counting. A
 passing check therefore means only this: a linked record says it has one of
@@ -1044,7 +1060,7 @@ string or null. This also appears on full thread records returned by `find`
 | `skill` | `{version, skill}`: the agent skill as Markdown text, rendered from this binary's version and command inventory. Needs no repository. Without `--json` the skill itself is the stdout text. |
 | `context [NODE]` | project and identity discovery (§11.2), including an unconfigured directory; never writes records or runtime state |
 | `schema KIND` | record fields, examples and configured vocabularies (§11.2); works without a project |
-| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`, `messages_args: ["messages", ID]` and `claims: [claim]`; a plied thread or question also has `commitments: [{id, rev, state, title, chains, governs}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0; `governs` in 0.7.0, null when absent) |
+| `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`, `messages_args: ["messages", ID]` and `claims: [claim]`; with `--linked`, `linked` (§4, added in 0.12.0); a plied thread or question also has `commitments: [{id, rev, state, title, chains, governs}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0; `governs` in 0.7.0, null when absent) |
 | `new`, `set`, `note`, `replace`, `dispose`, `scanned` | `{id, rev}`: the record written |
 | `list` | `[{id, kind, title, state, rev, path}]` |
 | `find` | records without `body` and `text` |
@@ -1079,7 +1095,9 @@ version. Fields are never removed or retyped without a new one.
 
 Since 0.11.0, `show --freshness` adds `freshness` to its record, and
 `frontier --freshness` adds `freshness` to every displayed queue,
-unscheduled, question and date row. An array item is
+unscheduled, question and date row. Since 0.12.0, every frontier row also
+has `claims`, the live plied claims on its record (§6), and
+`frontier --linked` adds `linked` (§4) to every row. An array item is
 `{record, rev, subject, mentions, via}`: the readable newer source id and
 full raw-byte revision, `subject` (`named` or `links`), sorted unique ids
 mentioned, and sorted unique reference edges `via: [{field, id}]`. A

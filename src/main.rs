@@ -76,6 +76,9 @@ enum Cmd {
         /// include current stale causes without recording a review
         #[arg(long)]
         freshness: bool,
+        /// list the linked records it references from sources with `show_fields`, with those fields as the records state them
+        #[arg(long)]
+        linked: bool,
     },
     /// create a record
     New {
@@ -159,6 +162,9 @@ enum Cmd {
         /// show existing stale causes beside the displayed records, without recording a review
         #[arg(long)]
         freshness: bool,
+        /// beside each record, list the linked records it references from sources with `show_fields`, with those fields as the records state them
+        #[arg(long)]
+        linked: bool,
     },
     /// regenerate the Markdown view
     View {
@@ -614,7 +620,7 @@ fn session_of(cli: &Cli) -> Option<String> {
 fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
     let json = cli.json;
     match &cli.cmd {
-        Cmd::Show { id, summary, freshness } => cmd_show(ctx, id, *summary, *freshness, json),
+        Cmd::Show { id, summary, freshness, linked } => cmd_show(ctx, id, *summary, *freshness, *linked, json),
         Cmd::New { kind, title, assign, set_file, body, why, who } => {
             let kind = OwnKind::parse(kind).unwrap();
             let who = who_of(who, true)?;
@@ -692,7 +698,7 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             }
             Ok(0)
         }
-        Cmd::Frontier { actor, freshness } => cmd_frontier(ctx, actor.as_deref(), *freshness, json),
+        Cmd::Frontier { actor, freshness, linked } => cmd_frontier(ctx, actor.as_deref(), *freshness, *linked, json),
         Cmd::View { check, print } => cmd_view(ctx, *check, *print, json),
         Cmd::Check { errors_only, baseline, group_stale } => cmd_check(ctx, *errors_only, baseline.as_deref(), *group_stale, json),
         Cmd::Recover => cmd_recover(ctx, json),
@@ -1074,7 +1080,7 @@ fn backlinks(st: &Store, rid: &str) -> Vec<(String, Vec<String>)> {
     out
 }
 
-fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, json: bool) -> Res<i32> {
+fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, linked: bool, json: bool) -> Res<i32> {
     let st = ctx.store()?;
     let r = st.get(id).ok_or_else(|| Fail::new(format!("no record {id}")))?;
     let data = std::fs::read(&r.path).unwrap_or_default();
@@ -1093,6 +1099,9 @@ fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, json: bool) -> 
         if freshness {
             o.insert("freshness".into(), json!(check::freshness(&st, r)));
         }
+        if linked {
+            o.insert("linked".into(), json!(views::linked_work(&st, r)));
+        }
         out_json(&Value::Object(o));
         return Ok(0);
     }
@@ -1102,6 +1111,13 @@ fn cmd_show(ctx: &Ctx, id: &str, summary: bool, freshness: bool, json: bool) -> 
         outln!("Freshness: {} current stale cause(s); no review recorded.", causes.len());
         for cause in causes {
             outln!("  {} (rev {}, {}) — mentions {}", cause.record, doc::take(&cause.rev, 12), cause.subject, cause.mentions.join(", "));
+        }
+    }
+    if linked {
+        let items = views::linked_work(&st, r);
+        outln!("Linked work: {} record(s), fields as each states them (? = not stated; their claims are not plied claims).", items.len());
+        for item in &items {
+            outln!("  {}", views::linked_work_line(item));
         }
     }
     Ok(0)
@@ -1295,7 +1311,7 @@ fn cmd_find(ctx: &Ctx, q_text: &str, json: bool) -> Res<i32> {
     Ok(0)
 }
 
-fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> Res<i32> {
+fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, linked: bool, json: bool) -> Res<i32> {
     let st = ctx.store()?;
     let mut fr = views::frontier(&st);
     if let Some(a) = actor {
@@ -1305,13 +1321,30 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> 
     let unscheduled: Vec<_> = views::unscheduled(&st).into_iter().filter(|r| actor.is_none_or(|a| doc::text(&r.meta, "actor").as_deref() == Some(a))).collect();
     let qs: Vec<_> = st.own(Some(OwnKind::Question)).into_iter().filter(|q| q.state_str() == Some("open")).collect();
     let dates = views::dates(&st, chrono::Utc::now().date_naive());
-    let with_freshness = |r: &Record, mut value: Value| {
+    // plied's own claims, so whoever picks a task sees who is on it; kept apart from anything a linked
+    // record says about its own assignment
+    let claims = ctx.messages().claims(false);
+    let claims_of = |r: &Record| -> Vec<&plied::messages::Claim> { claims.iter().filter(|c| c.node == r.id).collect() };
+    let with_extras = |r: &Record, mut value: Value| {
+        value["claims"] = Value::Array(claims_of(r).iter().map(|c| c.to_json()).collect());
         if freshness {
             value["freshness"] = json!(check::freshness(&st, r));
         }
+        if linked {
+            value["linked"] = json!(views::linked_work(&st, r));
+        }
         value
     };
-    let print_freshness = |r: &Record| {
+    let print_extras = |r: &Record| {
+        let on: Vec<String> = claims_of(r).iter().map(|c| format!("{} until {} UTC", c.agent, c.expires().format("%Y-%m-%d %H:%M"))).collect();
+        if !on.is_empty() {
+            outln!("    On it (plied claims): {}", on.join(", "));
+        }
+        if linked {
+            for item in views::linked_work(&st, r) {
+                outln!("    Linked {}", views::linked_work_line(&item));
+            }
+        }
         if freshness {
             for cause in check::freshness(&st, r) {
                 let how = if cause.subject == "named" { "names this node".to_string() } else { format!("cites {}", cause.via.iter().map(|v| format!("{} {}", v.field, v.id)).collect::<Vec<_>>().join(", ")) };
@@ -1324,17 +1357,20 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> 
         for (k, v) in &fr {
             obj.insert(
                 k.clone(),
-                Value::Array(v.iter().map(|r| with_freshness(r, json!({"id": r.id, "next": r.meta.get("next").map(Node::to_json), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()}))).collect()),
+                Value::Array(v.iter().map(|r| with_extras(r, json!({"id": r.id, "next": r.meta.get("next").map(Node::to_json), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()}))).collect()),
             );
         }
-        let unsched: Vec<Value> = unscheduled.iter().map(|r| with_freshness(r, json!({"id": r.id, "actor": doc::text(&r.meta, "actor"), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()}))).collect();
+        let unsched: Vec<Value> = unscheduled.iter().map(|r| with_extras(r, json!({"id": r.id, "actor": doc::text(&r.meta, "actor"), "title": r.title(), "rev": r.rev, "body_summary": r.body_summary()}))).collect();
         // with --actor the text output shows only that actor's work (below); open questions and
         // dates are no one actor's, so under --json they are empty too, not everyone's
-        let open: Vec<Value> = if actor.is_some() { vec![] } else { qs.iter().map(|q| with_freshness(q, json!({"id": q.id, "title": q.title(), "rev": q.rev}))).collect() };
+        let open: Vec<Value> = if actor.is_some() { vec![] } else { qs.iter().map(|q| with_extras(q, json!({"id": q.id, "title": q.title(), "rev": q.rev}))).collect() };
         let dates: Vec<Value> =
-            if actor.is_some() { vec![] } else { dates.iter().map(|(r, f, d, passed)| with_freshness(r, json!({"id": r.id, "field": f, "date": d.to_string(), "passed": passed}))).collect() };
+            if actor.is_some() { vec![] } else { dates.iter().map(|(r, f, d, passed)| with_extras(r, json!({"id": r.id, "field": f, "date": d.to_string(), "passed": passed}))).collect() };
         out_json(&json!({"queues": obj, "unscheduled": unsched, "open_questions": open, "dates": dates}));
         return Ok(0);
+    }
+    if linked {
+        outln!("(Linked fields are as each record states them; ? = not stated. A linked record's own claim or owner fields are not plied claims.)");
     }
     for (actor_name, rs) in &fr {
         outln!("{actor_name}:");
@@ -1344,7 +1380,7 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> 
             if let Some(summary) = views::summary_preview(r) {
                 outln!("     Summary (author-written preview): {summary}");
             }
-            print_freshness(r);
+            print_extras(r);
         }
     }
     if !unscheduled.is_empty() {
@@ -1355,21 +1391,21 @@ fn cmd_frontier(ctx: &Ctx, actor: Option<&str>, freshness: bool, json: bool) -> 
             if let Some(summary) = views::summary_preview(r) {
                 outln!("    Summary (author-written preview): {summary}");
             }
-            print_freshness(r);
+            print_extras(r);
         }
     }
     if !qs.is_empty() && actor.is_none() {
         outln!("open questions:");
         for q in qs {
             outln!("  {} {}", q.id, q.title());
-            print_freshness(q);
+            print_extras(q);
         }
     }
     if !dates.is_empty() && actor.is_none() {
         outln!("dates:");
         for (r, f, d, passed) in &dates {
             outln!("  {d} {} {f}{}  {}", r.id, if *passed { " (now)" } else { "" }, r.title());
-            print_freshness(r);
+            print_extras(r);
         }
     }
     Ok(0)

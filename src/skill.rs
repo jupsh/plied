@@ -105,6 +105,7 @@ the selected canonical checkout, then inspect `context` again.
 plied --json check                    # baseline: know the errors you did not make
                                       # (failing check = exit 1, report still in result.diagnostics)
 plied --json frontier                 # queues by actor, unscheduled threads, open questions, dates
+                                      # (--linked: fields of linked backlog items, as they state them)
 plied --json tree                     # the whole work tree
 plied show "$NODE" --json             # read text and its revision together; retain both
 plied messages "$NODE"               # earlier conversation does not retarget to a new claimant
