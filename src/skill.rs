@@ -120,6 +120,11 @@ show → --expect cycle follows. Before handing off, record what remains and
 where, then release only this session (`release --this-session` requires a
 nonempty session). New sessions get new IDs, even for the same agent.
 
+If a command (or the hook) notes that plied or the store's `requires`
+changed since this session first ran plied, re-read `plied skill` before
+your next write: this guidance may no longer be the binary's. `plied
+context --json` shows the baseline as `session_seen`.
+
 Task map: **Orient** (`context`, `schema`, `show`, `messages`); **Update**
 (`new`, `set`, `note`, `replace`); **Review** (`review`, `dispose`, `check`);
 **Communicate** (`claim`, `send`, `inbox`, `release`); **Recover** (`show`
@@ -229,6 +234,13 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   that names what is acted on (`merge:<branch>@<commit>` for a merge)
   (`run:fit-<date>`) each time, so an old review never stands in for a new
   run. A `because` says what you checked, not that you checked.
+- When the gate refuses the action's kind (exit 2: not one of
+  `checks.action_kinds`), don't stretch another kind to fit, and don't
+  drop the gate. Run `plied review <node> --action <the action>` without
+  `--gate` to see what would govern it. Hold the step and ask whoever
+  maintains `plied.toml` for the line the error gives (`error.detail.config`
+  with `--json`), for example with `plied send <node>`. Use a catch-all kind
+  only if the project has configured one.
 
 ### Controls before citing a null result
 
@@ -319,9 +331,18 @@ Twenty stale nodes take twenty reads. In a script, the rev you pass is
 the one from the call whose text you judged:
 
 ```sh
+plied --json show D140    # the entry; keep its rev
 plied --json show T001    # read result.text against the entry; keep result.rev
-plied note T001 "reviewed D140: …" --expect <that result.rev>
+plied note T001 "…" --reviewed D140@<D140's rev> --expect <T001's rev>
 ```
+
+`--reviewed` makes the note vouch only for the entries it names, at the
+revisions you read. A plain note (or any other write to the node) vouches
+for every newer entry at once, including ones you have not read, perhaps
+written by another session. So when a node is stale from several entries,
+name the ones you reviewed and leave the others standing for whoever reads
+them. If an entry you named is edited later, the node goes stale from it
+again. `show NODE --freshness` lists what still makes a node stale.
 
 A loop that fetches revs just before writing (from `list`, or from a fresh
 `show` whose text nobody read) defeats the check: the rev no longer shows
@@ -330,9 +351,9 @@ that node's own text; one note pasted across a group is a rubber stamp.
 
 Say in the note what the entry touches and why the node is or is not
 affected, so a later reader can check your reasoning:
-`plied note T001 "reviewed D140: it changes the outlier rule; T001 only formats the tables, so it is unaffected" --expect <rev>`.
-"reviewed D140: no change" records that you looked, not what you saw, and a
-string of them is a rubber stamp.
+`plied note T001 "it changes the outlier rule; T001 only formats the tables, so it is unaffected" --reviewed D140@<rev> --expect <rev>`.
+"no change" records that you looked, not what you saw, and a string of them
+is a rubber stamp.
 
 The check counts any id-shaped text as a mention. When an entry uses an id
 as a name for something else (a simulation set called "P20" is not

@@ -18,6 +18,27 @@ are versioned separately from plied itself; see
   `CLAUDE_CODE_SESSION_ID`. A passing gate says so on stderr, and an
   unpinned review's `unbound` evidence is explained.
   ONBOARDING-VALIDATION.md records both runs.
+- Let a review clear only the records it covers. `note` and `set` take
+  `--reviewed ID@REV` (repeatable). The write's history line becomes a
+  scoped review naming those linked records at the revisions read, checked
+  under the write lock. A scoped review does not count as the node's last
+  update, so other newer records keep the node stale, and an edit to a
+  reviewed record makes it stale again. Ordinary writes still review
+  everything newer. Earlier plied reads a scoped review as an ordinary
+  update, so stores whose writers use it should set
+  `requires = ">=0.12.0"`. ([#85](https://github.com/jupsh/plied/issues/85))
+- Say when plied changed under a session. Each command run in a session
+  compares the running plied version and the store's `requires` with what
+  that session first saw, and notes a change once, pointing to
+  `plied skill`. The agent hook puts the same note in the agent's context,
+  and `context` reports the baseline as `session_seen`.
+  ([#89](https://github.com/jupsh/plied/issues/89))
+- Make an action kind that `checks.action_kinds` refuses recoverable. The
+  usage error from `review --gate` and `dispose` names the config file and
+  key and gives the exact line to ask for; with `--json`, `error.detail`
+  carries the same facts. `review --action` without `--gate` now accepts any
+  kind, with a note, so an agent can see which commitments would govern the
+  step before asking. ([#88](https://github.com/jupsh/plied/issues/88))
 
 ## 0.11.0 — 2026-10-29
 

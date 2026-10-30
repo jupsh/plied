@@ -431,3 +431,48 @@ fn a_closed_stdout_ends_the_output_not_the_command() {
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
     assert!(p.ok(&["list"]).contains("T002"));
 }
+
+#[test]
+fn a_session_hears_once_when_plied_or_requires_changed_under_it() {
+    let p = Proj::new();
+    assert!(!text(&p.run(&["list"])).contains("plied skill"), "the first command records the baseline quietly");
+    let cfg = p.path().join("plied.toml");
+    let t = std::fs::read_to_string(&cfg).unwrap();
+    let line = t.lines().find(|l| l.starts_with("requires")).unwrap().to_string();
+    std::fs::write(&cfg, t.replace(&line, "requires = \">=0.1.0\"")).unwrap();
+
+    // context reads the baseline and says it no longer holds, without consuming the change
+    let v: serde_json::Value = serde_json::from_slice(&p.run(&["context", "--json"]).stdout).unwrap();
+    assert!(v["result"]["session_seen"]["version"].is_string(), "{v}");
+    assert_ne!(v["result"]["session_seen"]["requires"], ">=0.1.0");
+    assert!(v["notes"][0].as_str().unwrap().contains("requires changed"), "{v}");
+
+    let out = text(&p.run(&["list"]));
+    assert!(out.contains("requires changed") && out.contains("to \">=0.1.0\"") && out.contains("plied skill"), "{out}");
+    assert!(!text(&p.run(&["list"])).contains("plied skill"), "said once");
+    let v: serde_json::Value = serde_json::from_slice(&p.run(&["context", "--json"]).stdout).unwrap();
+    assert_eq!(v["result"]["session_seen"]["requires"], ">=0.1.0");
+    assert_eq!(v["notes"], serde_json::json!([]));
+
+    // the agent hook says it too, as context for the agent
+    let seen = p.path().join(".git/plied/seen/sess12345678.json");
+    std::fs::write(&seen, r#"{"version": "0.0.1", "requires": ">=0.1.0"}"#).unwrap();
+    let hook = |event: &str| {
+        use std::io::Write;
+        let mut child = std::process::Command::new(bin())
+            .args(["hook", "claude"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let input = serde_json::json!({"session_id": "sess12345678", "hook_event_name": event, "cwd": p.path()});
+        child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
+        String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
+    };
+    assert_eq!(hook("PreToolUse"), "", "an event that cannot carry context leaves the change for one that can");
+    let out = hook("UserPromptSubmit");
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let said = v["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
+    assert!(said.contains("started with 0.0.1") && said.contains("plied skill"), "{said}");
+    assert_eq!(hook("UserPromptSubmit"), "");
+}

@@ -106,6 +106,9 @@ enum Cmd {
         expect: String,
         #[arg(long)]
         why: Option<String>,
+        /// a linked record you read and judged this node against, as ID@REV (REV from `plied show`, 8+ hex); repeat for each. The write then vouches only for those revisions, not for every newer record (FORMAT.md §3.5)
+        #[arg(long, value_name = "ID@REV")]
+        reviewed: Vec<String>,
         #[command(flatten)]
         who: WhoArgs,
     },
@@ -116,6 +119,9 @@ enum Cmd {
         /// the revision you read (from `plied show`)
         #[arg(long, value_name = "REV")]
         expect: String,
+        /// a linked record you read and judged this node against, as ID@REV (REV from `plied show`, 8+ hex); repeat for each. The write then vouches only for those revisions, not for every newer record (FORMAT.md §3.5)
+        #[arg(long, value_name = "ID@REV")]
+        reviewed: Vec<String>,
         #[command(flatten)]
         who: WhoArgs,
     },
@@ -573,9 +579,36 @@ fn run(cli: &Cli) -> Res<i32> {
         Cmd::Guard { guard_cmd } => cmd_guard(cli, guard_cmd),
         _ => {
             let ctx = Ctx::new(cli)?;
+            if let Some(session) = session_of(cli) {
+                let requires = ctx.repo.cfg.requires.as_ref().map(ToString::to_string);
+                if let Some(change) = plied::session::observe(&ctx.repo.runtime, &session, requires.as_deref()) {
+                    plied::notes::note(change);
+                }
+            }
             dispatch(&ctx, cli)
         }
     }
+}
+
+/// The session a command runs in: its own `--session`, else the environment's (as `who_of`).
+fn session_of(cli: &Cli) -> Option<String> {
+    let args = match &cli.cmd {
+        Cmd::New { who, .. }
+        | Cmd::Set { who, .. }
+        | Cmd::Note { who, .. }
+        | Cmd::Replace { who, .. }
+        | Cmd::Claim { who, .. }
+        | Cmd::Release { who, .. }
+        | Cmd::Send { who, .. }
+        | Cmd::Subscribe { who, .. }
+        | Cmd::Unsubscribe { who, .. }
+        | Cmd::Inbox { who, .. }
+        | Cmd::Ack { who, .. }
+        | Cmd::Dispose { who, .. }
+        | Cmd::Scanned { who, .. } => who.clone(),
+        _ => WhoArgs { as_: None, session: None },
+    };
+    who_of(&args, false).ok().and_then(|w| w.session)
 }
 
 fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
@@ -604,18 +637,20 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             }
             Ok(0)
         }
-        Cmd::Set { id, assign, set_file, expect, why, who } => {
+        Cmd::Set { id, assign, set_file, expect, why, reviewed, who } => {
             let who = who_of(who, true)?;
             let assigns = assignments_of(cli, assign, set_file)?;
+            let mut scoped = scoped_review(id, reviewed)?;
             let lib = ctx.library_opt()?;
-            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, why.as_deref(), &assigns, None, None, None)?;
+            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, why.as_deref(), &assigns, None, None, scoped.as_deref_mut())?;
             print_updated(id, &rev, json, "updated");
             Ok(0)
         }
-        Cmd::Note { id, text, expect, who } => {
+        Cmd::Note { id, text, expect, reviewed, who } => {
             let who = who_of(who, true)?;
+            let mut scoped = scoped_review(id, reviewed)?;
             let lib = ctx.library_opt()?;
-            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, None, &[], Some(text), None, None)?;
+            let rev = ctx.writer().update(&ctx.policy, lib.as_ref(), id, expect, &who, None, &[], Some(text), None, scoped.as_deref_mut())?;
             print_updated(id, &rev, json, "noted");
             Ok(0)
         }
@@ -802,6 +837,42 @@ fn lease_text(c: &plied::messages::Claim) -> String {
     format!("{}{s}, since {}, lease until {} UTC", c.agent, c.since, c.expires().format("%Y-%m-%d %H:%M"))
 }
 
+/// For `--reviewed ID@REV…`: the write's scoped review (§3.5), checked against the store loaded under
+/// the write lock, so it names only revisions that are current when it is written. None without any.
+fn scoped_review<'a>(node: &'a str, reviewed: &[String]) -> Res<Option<Box<plied::writer::Mutate<'a>>>> {
+    let mut items: Vec<(String, String)> = vec![];
+    for value in reviewed {
+        let Some((id, rev)) = value.rsplit_once('@').map(|(i, r)| (i.to_string(), r.to_ascii_lowercase())).filter(|(i, r)| !i.is_empty() && plied::records::is_rev(r)) else {
+            return Err(Fail::code(EXIT_USAGE, "--reviewed needs ID@REV: a linked record's id and the revision you read (at least 8 hex characters; `plied show` prints it)"));
+        };
+        if !items.iter().any(|(i, _)| *i == id) {
+            items.push((id, rev));
+        }
+    }
+    if items.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Box::new(move |store: &Store, _meta: &mut Map| -> Res<String> {
+        let causes: Vec<String> = store.get(node).map(|n| check::freshness(store, n).into_iter().map(|c| c.record).collect()).unwrap_or_default();
+        let mut named = vec![];
+        for (id, rev) in &items {
+            let r = store.get(id).ok_or_else(|| Fail::new(format!("{id} is unavailable (missing or possibly sealed)")))?;
+            if r.is_own() {
+                return Err(Fail::new(format!("{id} is a plied record; --reviewed names the linked records that make a node stale")));
+            }
+            if !r.rev.starts_with(rev.as_str()) {
+                return Err(Fail::code(plied::error::EXIT_CONFLICT, format!("{id} changed since you read it; read it again"))
+                    .with_detail(json!({"id": id, "expected": rev, "current": r.rev})));
+            }
+            if !causes.contains(id) {
+                plied::notes::note(format!("{id} does not make {node} stale; the review is recorded anyway"));
+            }
+            named.push(format!("{id}@{}", &r.rev[..12]));
+        }
+        Ok(format!("reviewed {}", named.join(", ")))
+    })))
+}
+
 fn print_updated(id: &str, rev: &str, json: bool, verb: &str) {
     if json {
         out_json(&json!({"id": id, "rev": rev}));
@@ -857,10 +928,16 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
             "here": fsx::resolve(cli.c.as_deref().unwrap_or_else(|| Path::new("."))),
             "runtime": null, "runtime_access": null, "branch": null, "canonical_branch": null,
             "write_blockers": ["no plied.toml; initialize the selected canonical checkout with plied init"],
-            "identity": identity, "vocabularies": plied::schema::vocabularies(None), "linked_sources": [],
+            "identity": identity, "session_seen": null, "vocabularies": plied::schema::vocabularies(None), "linked_sources": [],
             "capabilities": capabilities, "next": "plied init", "node": null}), cli.json);
     };
     let cfg = &repo.cfg;
+    // read only: context never records the baseline, but says when it no longer holds
+    let session_seen = who.session.as_deref().and_then(|s| plied::session::seen(&repo.runtime, s));
+    let requires = cfg.requires.as_ref().map(ToString::to_string);
+    if let Some(change) = session_seen.as_ref().and_then(|b| plied::session::change(b, requires.as_deref())) {
+        plied::notes::note(change);
+    }
     let mut blockers = repo.write_blockers();
     blockers.extend(cfg.compat_problems().into_iter().map(|(_, message)| message));
     let mut value = json!({"version": plied::VERSION, "configured": true, "canonical": repo.canonical,
@@ -868,7 +945,7 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
         "runtime_access": {"writability": "unverified", "reason": "Filesystem writability has not been checked. Claims, messages, releases, record writes and caches need runtime writes. A filesystem error may require permission or a writable runtime selected with PLIED_RUNTIME; writable storage grants no record-edit authority."},
         "configuration": {"path": cfg.path, "format": cfg.format, "requires": cfg.requires.as_ref().map(ToString::to_string), "compatible": cfg.compat_problems().is_empty()},
         "branch": repo.branch(), "canonical_branch": cfg.canonical_branch, "write_blockers": blockers,
-        "identity": identity, "vocabularies": plied::schema::vocabularies(Some(cfg)),
+        "identity": identity, "session_seen": session_seen, "vocabularies": plied::schema::vocabularies(Some(cfg)),
         "linked_sources": cfg.sources.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), "capabilities": capabilities, "node": null});
     if let Some(id) = node {
         let policy = Rc::new(Policy::new(cfg)?);
@@ -1721,8 +1798,16 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
     if gate && action.is_none() {
         return Err(Fail::code(EXIT_USAGE, "--gate needs --action: a disposition counts only for the action it was recorded for"));
     }
-    if let Some(msg) = action.and_then(|a| ctx.repo.cfg.action_problem(a)) {
-        return Err(Fail::code(EXIT_USAGE, msg));
+    // without --gate, review only reads: an action of an unconfigured kind still shows what would
+    // govern it, which is what the caller needs in order to ask for the kind
+    if let Some(a) = action
+        && let Some(refusal) = ctx.repo.cfg.action_refusal(a)
+    {
+        if gate {
+            return Err(refusal);
+        }
+        let problem = ctx.repo.cfg.action_problem(a).unwrap_or_default();
+        plied::notes::note(format!("{problem}; --gate and dispose refuse this action until plied.toml allows its kind"));
     }
     let st = ctx.store()?;
     for n in nodes {
@@ -1821,8 +1906,8 @@ fn cmd_dispose(ctx: &Ctx, id: &str, action: &str, disposition: &str, because: &s
     if Disposition::parse(disposition).is_none() {
         return Err(Fail::code(EXIT_USAGE, format!("--disposition must be one of {}", Disposition::ALL.join(", "))));
     }
-    if let Some(msg) = ctx.repo.cfg.action_problem(action) {
-        return Err(Fail::code(EXIT_USAGE, msg));
+    if let Some(refusal) = ctx.repo.cfg.action_refusal(action) {
+        return Err(refusal);
     }
     let who = who_of(who_args, true)?;
     let who_s = who.to_string();
