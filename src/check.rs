@@ -345,7 +345,10 @@ fn thread(store: &Store, r: &Record, at: &str, p: &mut Report) {
     let outcome = m.get("outcome");
     if is(ThreadStatus::Closed) {
         match outcome {
-            Some(Node::Map(o)) => quote(store, at, p, o.get("quote"), o.get("ref"), "outcome"),
+            Some(Node::Map(o)) => {
+                quote(store, at, p, o.get("quote"), o.get("ref"), "outcome");
+                outcome_labels(store, at, p, o.get("labels"));
+            }
             _ => p.err("required", at, "outcome", "a closed node needs outcome (quote and ref)"),
         }
     } else if let Some(st) = status.filter(|_| outcome.is_some_and(|o| !o.is_empty())) {
@@ -623,6 +626,34 @@ fn dates(store: &Store, p: &mut Report) {
                 let what = if f == "due" { format!("due {d} has passed") } else { format!("revisit_on {d} has come, and it is still {}", r.state_str().unwrap_or_default()) };
                 p.warn("date", &at, what);
             }
+        }
+    }
+}
+
+/// `outcome.labels` (§3.3): a writer-chosen label per configured facet. Its shape is checked like any
+/// field; its vocabulary only warns, so adopting or changing one never blocks a write.
+fn outcome_labels(store: &Store, at: &str, p: &mut Report, labels: Option<&Node>) {
+    let Some(labels) = labels.filter(|l| !l.is_empty()) else { return };
+    let Node::Map(labels) = labels else {
+        p.err("field", at, "outcome.labels", "outcome.labels must be a mapping of facet to label");
+        return;
+    };
+    let Some(vocabulary) = store.cfg.outcome_labels.as_ref() else {
+        p.warn_on("label", at, "outcome.labels", "outcome.labels is set, but plied.toml has no [outcome_labels] to check it against");
+        return;
+    };
+    for (facet, label) in labels {
+        let subject = format!("outcome.labels.{facet}");
+        let Some(label) = label.str() else {
+            p.err("field", at, &subject, format!("{subject} must be one label (text)"));
+            continue;
+        };
+        match vocabulary.get(facet) {
+            None => p.warn_on("label", at, &subject, format!("{facet:?} is not a facet in [outcome_labels] ({})", vocabulary.keys().cloned().collect::<Vec<_>>().join(", "))),
+            Some(allowed) if !allowed.iter().any(|a| a == label) => {
+                p.warn_on("label", at, &subject, format!("{subject}: {label:?} is not one of {}", allowed.join(", ")))
+            }
+            Some(_) => {}
         }
     }
 }

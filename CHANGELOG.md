@@ -6,6 +6,14 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Add optional outcome labels. A project may configure facets in
+  `[outcome_labels]` (for example `criterion` and `evidence`), and a closed
+  thread may label each in `outcome.labels`. Labels are writer-chosen, never
+  computed; values outside the vocabulary warn (`label`) and never block.
+  `find` queries them, and `schema` and `context` list the vocabulary.
+  Stores using them should set `requires = ">=0.12.0"`.
+  ([#34](https://github.com/jupsh/plied/issues/34))
+
 ## 0.11.0 — 2026-10-29
 
 The record format and JSON envelope remain at version 1. Stores using

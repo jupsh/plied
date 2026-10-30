@@ -102,6 +102,7 @@ Regular expressions and templates MUST be checked when the file is loaded.
 | | `commitment_phrases` | list of regexes | see below | matched case-insensitively |
 | | `commitments_since` | string `YYYY-MM-DD` | none | |
 | | `action_kinds` | list of strings, without spaces or `:` | none: any | the kinds an action may have (§12) |
+| `outcome_labels` | any facet name (letters, digits, `_`, `-`) | nonempty list of strings | none | the labels `outcome.labels` may give that facet (§3.3). Added in 0.12.0 |
 | `messages` | `lease_minutes` | positive integer | 30 | |
 | `runtime` | `revision_days` | integer, 0 or more | 14 | days the revision cache keeps content after it was last read or written (§6) |
 
@@ -279,7 +280,7 @@ unless its type says otherwise.
 | `waiting_on` | refs | when `waiting` | blocks: an `open` node may not have an unresolved one |
 | `uses` | refs | no | does not block; its commitments apply (§12) |
 | `approval` | mapping: `state` (`approved` or `not approved`), `by` (ref, required when `approved`) | no | §4. It names the decision, not a revision of this node: later edits keep it |
-| `outcome` | mapping: `quote` and `ref`, both required | when `closed`, and only then | what concluded the node; `quote` matches `ref` (§3.6). It records what happened, which need not be success |
+| `outcome` | mapping: `quote` and `ref`, both required, and `labels` | when `closed`, and only then | what concluded the node; `quote` matches `ref` (§3.6). It records what happened, which need not be success. `labels` is below |
 | `carries` | refs | no; only when `closed` | problems the node leaves unresolved. Nothing waits on them unless a node names them in `waiting_on` |
 | `closes_when` | text | no | prose |
 | `revisit` | text | no | prose |
@@ -288,6 +289,20 @@ unless its type says otherwise.
 | `links` | refs | no | linking a commitment attaches it (§12) |
 | `cites` | citations | no | §10 |
 | `scanned` | list of mappings | no | scan reviews: linked records read for commitments and found to hold none to record (§8). Added in 0.2.0 |
+
+`outcome.labels` (since 0.12.0) is an optional mapping from a facet named
+in `[outcome_labels]` (§2) to one of that facet's labels, as text. The
+writer chooses each label; plied computes none and gives none a meaning. Facets
+let separate dimensions stay separate: how the work ended (`procedure:
+stopped-early`), what a criterion showed (`criterion: not-met`) and what the
+evidence supports (`evidence: inconclusive`) are three labels, not one. A
+record without labels has none, whatever the vocabulary; a label outside its
+facet's vocabulary, a facet not in it, or any label without one is a warning
+(`label`, §8), so adopting or changing a vocabulary never blocks a write or
+invalidates an old record. A shape other than a mapping of text is a `field`
+error. `find` queries them like any field (`{"outcome.labels.evidence":
+"inconclusive"}`). Labels belong to the outcome, and leave with it when it is
+cleared. Stores using them should set `requires = ">=0.12.0"`.
 
 `status` is one of `open` (nothing named stops it), `waiting` (on
 `waiting_on`), `held` (by a decision), `parked` (set aside), `closed`
@@ -652,7 +667,9 @@ no thread's `scanned` covers at its current revision; an unlinked record of a
 `require_linked` source; a stale view; citation warnings (§10); a date that
 asks for attention (§3.3, code `date`); a review whose action has a kind not
 in `checks.action_kinds` (code `action`, a warning so that adopting a
-vocabulary never blocks records made before it); a superseded commitment
+vocabulary never blocks records made before it); an outcome label outside
+`[outcome_labels]` (code `label`, subject `outcome.labels.<facet>`, or
+`outcome.labels` when no vocabulary is configured; added in 0.12.0); a superseded commitment
 whose replacement, followed through `superseded_by` to the first commitment
 that is not superseded, is unresolved and does not apply (§12) to every node
 the superseded one applies to (code `superseded`, added in 0.7.0).
@@ -1111,7 +1128,8 @@ runtime_access, configuration, branch, canonical_branch, write_blockers, identit
 vocabularies, linked_sources, capabilities, node}`. `configuration` holds
 `{path, format, requires, compatible}`; `identity` holds `{agent, session}`
 using the normal identity overrides. `vocabularies` holds `actors`,
-`action_kinds` and `approve_authorities` (null when unavailable).
+`action_kinds`, `approve_authorities` and, since 0.12.0, `outcome_labels`
+(an object of facet → labels; each null when unavailable).
 `linked_sources` lists configured kind names, never selected record IDs,
 paths or hashes. `capabilities` holds the build's `pdf` boolean and lists of
 `record_kinds`, `discovery` commands and `guidance` entry points. `pdf: true`

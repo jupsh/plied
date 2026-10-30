@@ -438,6 +438,10 @@ commitment_phrases = ["\\bdeferred\\b", "\\bif\\b[^.]{0,80}\\bthen\\b"]
 commitments_since = "2026-10-01"
 action_kinds = ["run", "publish"]   # optional: actions must be kind or kind:instance
 
+[outcome_labels]                       # optional: facets a closed thread's outcome may be labelled on
+criterion = ["met", "not-met"]
+evidence = ["informative", "inconclusive"]
+
 [messages]
 lease_minutes = 30
 
