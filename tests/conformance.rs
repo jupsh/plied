@@ -1055,6 +1055,64 @@ fn a_stale_warning_says_whether_the_node_was_named_and_named_ones_come_first() {
     assert!(stale[1].0.contains("T001-") && stale[1].1 == "links", "{stale:?}");
 }
 
+#[test]
+fn a_scoped_review_clears_only_the_revisions_it_names() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    p.ok(&["new", "thread", "--title", "Fit"]);
+    // backdate the thread's only history line, so that a write today is newer than the records
+    let path = p.path().join("plied/threads/T001-fit.md");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let at = text.find("\n- ").unwrap() + 3;
+    std::fs::write(&path, format!("{}2000-01-01 00:00{}", &text[..at], &text[at + 16..])).unwrap();
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: mine\ndate: 2001-01-01\n---\nT001 changes method.\n").unwrap();
+    std::fs::write(p.path().join("log/D002.md"), "---\nid: D002\ntitle: theirs\ndate: 2001-01-02\n---\nT001 needs another look.\n").unwrap();
+    std::fs::write(p.path().join("log/D003.md"), "---\nid: D003\ntitle: unrelated\ndate: 2001-01-03\n---\nNothing here.\n").unwrap();
+    let causes = |p: &Proj| -> Vec<String> {
+        envelope(&p.run(&["show", "T001", "--freshness", "--json"]))["result"]["freshness"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["record"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(causes(&p), ["D001", "D002"]);
+    let d1 = p.rev("D001");
+    let note = |p: &Proj, reviewed: &str| p.run(&["note", "T001", "D001 changes the method; T001 is unaffected", "--reviewed", reviewed, "--expect", &p.rev("T001"), "--json"]);
+
+    // refusals: the syntax, a plied record, a revision that is not current
+    assert_eq!(note(&p, "D001").status.code(), Some(2));
+    assert_eq!(note(&p, &format!("T001@{}", p.rev("T001"))).status.code(), Some(1));
+    let refused = note(&p, "D001@deadbeef");
+    assert_eq!(refused.status.code(), Some(3));
+    assert_eq!(envelope(&refused)["error"]["detail"]["id"], "D001");
+
+    // the note vouches for D001 at the revision read, and leaves D002 standing
+    let reviewed = format!("D001@{}", &d1[..8]);
+    let punctuated = p.run_as("worker:one", &["note", "T001", "D001 changes the method; T001 is unaffected", "--reviewed", &reviewed, "--expect", &p.rev("T001"), "--json"]);
+    assert!(punctuated.status.success(), "{}", common::text(&punctuated));
+    assert_eq!(causes(&p), ["D002"]);
+    let shown = p.ok(&["show", "T001"]);
+    assert!(shown.contains(&format!(": reviewed D001@{}; D001 changes the method", &d1[..12])), "{shown}");
+    let stale: Vec<_> = diagnostics(&p).into_iter().filter(|(_, c, _, _)| c == "stale").collect();
+    assert_eq!(stale.len(), 1, "D002 still makes T001 stale: {stale:?}");
+
+    // set can carry a scoped review too; one that names a record not making the node stale says so
+    let rev = p.rev("T001");
+    let out = envelope(&p.run(&["set", "T001", "next=1", "--reviewed", &format!("D003@{}", p.rev("D003")), "--expect", &rev, "--json"]));
+    assert!(out["notes"][0].as_str().unwrap().contains("D003 does not make T001 stale"), "{out}");
+    assert_eq!(causes(&p), ["D002"], "a scoped write moves nothing else on, whatever else it changes");
+
+    // the review covers bytes: an edit to D001 makes it news again
+    p.edit("log/D001.md", "changes method", "changes method again");
+    assert_eq!(causes(&p), ["D001", "D002"]);
+
+    // an ordinary note still vouches for everything newer, as before
+    p.ok(&["note", "T001", "read both", "--expect", &p.rev("T001")]);
+    assert_eq!(causes(&p), Vec::<String>::new());
+}
+
 // ------------------------------------------------------------------------ §7 the view
 
 #[test]
