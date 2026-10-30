@@ -13,8 +13,11 @@ are versioned separately from plied itself; see
   dispositions. The skill gains a start-to-finish path, a session id that
   is unique in its first 8 characters and stable across commands, guidance
   on committing record files, authority rules, pins, `outcome.ref` and
-  messages addressed to someone else. ONBOARDING-VALIDATION.md records the
-  run.
+  messages addressed to someone else. `context` reports where the session
+  came from (`identity.session_source`), since subagents inherit
+  `CLAUDE_CODE_SESSION_ID`. A passing gate says so on stderr, and an
+  unpinned review's `unbound` evidence is explained.
+  ONBOARDING-VALIDATION.md records both runs.
 
 ## 0.11.0 — 2026-10-29
 

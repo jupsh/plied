@@ -70,3 +70,22 @@ Its gaps, and what changed in response:
 | `claim` didn't say that a reviewer already held the node; lease times had no date | `claim` lists the others on the node (`others` in JSON); leases show their date |
 | No guidance on a message addressed to someone else | Under *Messages and presence* |
 | The core workflow was hard to find among research-specific sections | *A task, start to finish* at the top of the skill |
+
+**2026-10-30, second run,** on a build with the changes above and the same
+fixture and planted conflict. Another fresh agent finished the task. Unlike
+the first, it did the code work in a separate worktree, committed the record
+files apart from the code, saw the reviewer's claim from `claim`, kept a
+session id unique in its first 8 characters, and left `check` clean without
+a pin warning. It reported these smaller gaps, and they changed too:
+
+| Gap | Change |
+|---|---|
+| A subagent inherits its parent's `CLAUDE_CODE_SESSION_ID`, and `context` didn't say where the session came from | `identity.session_source` in `context`; the skill tells subagents to set their own `PLIED_SESSION` |
+| A passing gate printed no verdict, only the listing | `gate: passed for …` on stderr |
+| `evidence … unbound` was unexplained | The line says there are no `--read` pins and that the gate does not use them |
+| The closing example omitted `next=`, which an open thread in a queue needs cleared | The example clears it and says why |
+| No convention for naming a merge action, or for who gets a handoff | Examples in the skill: `merge:<branch>@<commit>`; address the handoff to whoever assigned the work |
+
+Open after both runs: a project with no results records can only quote a
+thread's own note as its outcome, and nothing connects a gate's action name
+to the merge it gated.

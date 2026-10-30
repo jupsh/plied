@@ -1109,8 +1109,10 @@ per-record revision requirements above.
 `context [NODE]` returns `{version, configured, canonical, here, runtime,
 runtime_access, configuration, branch, canonical_branch, write_blockers, identity,
 vocabularies, linked_sources, capabilities, node}`. `configuration` holds
-`{path, format, requires, compatible}`; `identity` holds `{agent, session}`
-using the normal identity overrides. `vocabularies` holds `actors`,
+`{path, format, requires, compatible}`; `identity` holds `{agent, session,
+session_source}` using the normal identity overrides. `session_source` (added
+in 0.12.0) is `--session`, `PLIED_SESSION`, `CLAUDE_CODE_SESSION_ID` or null:
+the last is shared by a Claude Code session's subagents. `vocabularies` holds `actors`,
 `action_kinds` and `approve_authorities` (null when unavailable).
 `linked_sources` lists configured kind names, never selected record IDs,
 paths or hashes. `capabilities` holds the build's `pdf` boolean and lists of

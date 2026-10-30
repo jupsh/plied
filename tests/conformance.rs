@@ -653,6 +653,9 @@ fn context_and_show_expose_node_conversation_and_presence_without_sealed_records
     assert_eq!(r["vocabularies"]["action_kinds"], serde_json::json!(["run", "report"]));
     assert_eq!(r["identity"]["agent"], "alice");
     assert_eq!(r["identity"]["session"], "sess12345678");
+    assert_eq!(r["identity"]["session_source"], "PLIED_SESSION");
+    let flagged = envelope(&p.run(&["context", "--session", "other", "--json"]));
+    assert_eq!(flagged["result"]["identity"]["session_source"], "--session");
     assert_eq!(r["node"]["messages_args"], serde_json::json!(["messages", "T001"]));
     assert_eq!(r["node"]["claims"][0]["agent"], "alice");
     assert!(!context.to_string().contains("T002"));
@@ -1186,7 +1189,9 @@ fn action_kinds_restrict_new_reviews_and_warn_about_old_ones() {
     assert_eq!(p.code(&["dispose", "P01", "--action", "rollback:1", "--disposition", "satisfied", "--because", "x", "--expect", &rev]), Some(2));
     assert_eq!(gate(&p, "T001", "run:fit-20261024"), Some(6), "a known kind gates as before");
     dispose(&p, "run:fit-20261024", "satisfied");
-    assert_eq!(gate(&p, "T001", "run:fit-20261024"), Some(0));
+    let passed = p.run(&["review", "T001", "--action", "run:fit-20261024", "--gate"]);
+    assert_eq!(passed.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&passed.stderr).contains("gate: passed for run:fit-20261024"), "a pass says so: {}", text(&passed));
     let out = p.ok(&["check"]);
     assert!(out.contains("warning") && out.contains("deploy-friday"), "the old review is a warning, not an error:\n{out}");
 }

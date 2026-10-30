@@ -397,6 +397,21 @@ impl Ctx {
     }
 }
 
+/// Where the effective session came from, in `who_of`'s order: `--session`, `PLIED_SESSION` or
+/// `CLAUDE_CODE_SESSION_ID`. The last is shared by a Claude Code session's subagents.
+fn session_source(args: &WhoArgs) -> Option<&'static str> {
+    let set = |v: Option<String>| v.is_some_and(|s| !s.is_empty());
+    if set(args.session.clone()) {
+        Some("--session")
+    } else if set(std::env::var("PLIED_SESSION").ok()) {
+        Some("PLIED_SESSION")
+    } else if set(std::env::var("CLAUDE_CODE_SESSION_ID").ok()) {
+        Some("CLAUDE_CODE_SESSION_ID")
+    } else {
+        None
+    }
+}
+
 fn who_of(args: &WhoArgs, required: bool) -> Res<Who> {
     let agent = args
         .as_
@@ -833,7 +848,8 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
     let configuration = repo::configuration_path(cli.c.as_deref(), cli.config.as_deref())?;
     let capabilities = json!({"pdf": cfg!(feature = "pdf"), "record_kinds": ["thread", "commitment", "question"],
         "discovery": ["context", "schema"], "guidance": ["--help", "skill"]});
-    let identity = json!({"agent": if who.agent.is_empty() { None } else { Some(&who.agent) }, "session": who.session});
+    let identity = json!({"agent": if who.agent.is_empty() { None } else { Some(&who.agent) }, "session": who.session,
+        "session_source": session_source(args)});
     let Some(repo) = discovery_repo(cli)? else {
         let canonical = configuration.parent().unwrap_or_else(|| Path::new("."));
         return print_discovery(json!({"version": plied::VERSION, "configured": false, "canonical": canonical,
@@ -1762,7 +1778,8 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
                 );
             }
             for claim in review::input_reviews(&st, c, action) {
-                outln!("  evidence for {} (review {}): {}", claim.action, claim.review_index, claim.status);
+                let gloss = if claim.status == "unbound" { " (no --read pins; the gate does not use pins)" } else { "" };
+                outln!("  evidence for {} (review {}): {}{gloss}", claim.action, claim.review_index, claim.status);
                 for input in claim.inputs {
                     outln!("    {}@{}: {}", input.record, doc::take(&input.rev, 12), input.status);
                 }
@@ -1786,6 +1803,11 @@ fn cmd_review(ctx: &Ctx, nodes: &[String], action: Option<&str>, gate: bool, jso
         if !json {
             for r in &reasons {
                 errln!("gate: {r}");
+            }
+            // a pass is a verdict too: say it, rather than leave it to the exit code
+            if reasons.is_empty() {
+                let n = items.iter().filter(|x| x.governs_action).count();
+                errln!("gate: passed for {}: {n} applicable commitment(s) govern it, each with a non-blocking disposition for it", action.unwrap_or_default());
             }
         }
         return Ok(if reasons.is_empty() { 0 } else { EXIT_GATE });

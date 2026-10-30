@@ -90,7 +90,9 @@ with something unique (here, random hex). It must stay the same for every
 command of the session: if each command runs in a fresh shell, generate it
 once and save it (for example in a file you source), never per command.
 Under Claude Code, `CLAUDE_CODE_SESSION_ID` is used when `PLIED_SESSION` is
-unset.
+unset, but a subagent inherits its parent's, so agents sharing it would share
+claims and one `release --this-session` would end them all. A subagent sets
+its own `PLIED_SESSION`. `context` reports `identity.session_source`.
 
 Choose the actual node named in your task; use `frontier`/`tree` if no node
 was supplied. Below, `NODE` means that actual ID, never an assumed first ID.
@@ -224,6 +226,7 @@ from `--set-file key=FILE` (or `--body FILE` on `new`).
   depends on or produces results for (`plied review T001 T004 T009 …`), not
   only the one you are on: a commitment attached to a node you left out
   never comes up. Run it before the action, and use a fresh action name
+  that names what is acted on (`merge:<branch>@<commit>` for a merge)
   (`run:fit-<date>`) each time, so an old review never stands in for a new
   run. A `because` says what you checked, not that you checked.
 
@@ -379,7 +382,8 @@ Closing records what happened — it is not success, and it approves nothing
 downstream. A closed thread needs `outcome.quote` quoted (as for `wording`)
 from `outcome.ref`, plus `carries` for problems it leaves open. Set them in
 the same write as the status — `status=closed` alone is refused (exit 4):
-`plied set T001 status=closed 'outcome.quote=…' outcome.ref=D150 --expect <rev> --why "…"`.
+`plied set T001 status=closed next= 'outcome.quote=…' outcome.ref=D150 --expect <rev> --why "…"`
+(`next=` clears the queue position, which only an open thread may have).
 `outcome.ref` names the record that holds the result: a decision, a linked
 results record, or another thread whose text states it. A thread quoting a
 note it just wrote on itself shows only that you said so; when nothing
@@ -460,7 +464,9 @@ branch, a stash, scratch files, a run still going), and set `next` or
 `status` to match. Otherwise send those details to the authorized author. Then run `plied check`. Hand off with 0 errors and 0
 warnings, or name every warning left standing and why (an unscanned
 record, a node whose review you did not note). Do not claim a clean check
-you did not run in this session. Then `plied release --this-session` so
+you did not run in this session. Address the handoff message `--to` whoever
+assigned the work as well (live claimants and subscribers get it anyway).
+Then `plied release --this-session` so
 your claims stop showing you as on the node (they expire on their own, but
 later).
 
