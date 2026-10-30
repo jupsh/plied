@@ -242,6 +242,11 @@ attachment warnings. It remains useful independently of the design in #75.
 
 ### #75 — defer the semantic change
 
+*Later the same day:* PR #76 was merged before this change, so a
+commitment's `nodes` no longer counts for stale-by-link and the freshness
+and grouping views follow it. `made` still counts; the rest of this section
+is the triage as written.
+
 Both the attachment report and the new `made` example describe real repeated
 review cost, and both follow §8 today. PR #76 addresses only commitment
 `nodes`; it deliberately leaves `made` and explicit `links` contributing

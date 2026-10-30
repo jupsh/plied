@@ -667,13 +667,19 @@ by `--errors-only`. It does not check literature manifests.
 **Stale.** A plied record is stale when a dated linked record (§4), dated
 strictly after the record's last update (§3.5), mentions the record's id or,
 while the record is unresolved (§3.3), an id in one of its reference fields
-other than `parent`. To *mention* is to
+other than `parent` or a commitment's `nodes`. To *mention* is to
 contain the id anywhere in the linked record's file text, frontmatter
 included, with no letter, digit or `_` directly before or after it. A linked
 record that the record itself references never makes it stale, and a record
 with no history line is never stale. `parent` is left out because it is
 organisational (§3.3): a record about a group makes the group stale, not
-each of its children. (Before 0.4.0, `parent` counted.) A resolved record's
+each of its children. (Before 0.4.0, `parent` counted.) A commitment's `nodes`
+attaches the obligation (§12); news about an attached thread or question is
+that node's to review, without making every attached commitment stale.
+Naming the commitment directly still counts, as do its other reference
+fields, including `made` or `links` naming the same attachment target. A
+question's `nodes` still counts: it names what the question concerns (§3.3).
+(Through 0.10.0, a commitment's `nodes` counted too.) A resolved record's
 references are history: a record about something a closed thread or a
 fulfilled commitment once linked cannot change what it concluded, while one
 that names the resolved record itself may be reopening it. (Before 0.5.0, a
@@ -681,9 +687,10 @@ resolved record went stale through its references too.)
 
 A node has at most two stale warnings, told apart by subject: `named` lists
 the newer records that mention the node's own id, and `links` those that
-mention only ids in its reference fields. All `named` warnings are reported
-before any `links` warning. A record that names the node is more likely to
-change it, while one that cites only its links usually needs just a note.
+mention only ids in its reference fields after these exclusions. All
+`named` warnings are reported before any `links` warning. A record that
+names the node is more likely to change it, while one that cites only its
+links usually needs just a note.
 (Before 0.7.0, a node had one stale warning, with no subject.)
 
 **Freshness presentation.** `show --freshness` and `frontier --freshness`

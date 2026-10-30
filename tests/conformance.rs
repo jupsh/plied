@@ -928,7 +928,7 @@ fn freshness_and_grouping_observe_a_preexisting_store_without_reviewing_it() {
     std::fs::write(p.path().join("plied/threads/T001.md"), "---\nid: T001\ntitle: Existing task\nstatus: open\nactor: alice\nnext: 1\n---\n## History\n- 2000-01-01 00:00 UTC alice: created\n").unwrap();
     std::fs::write(p.path().join("plied/commitments/P01.md"), "---\nid: P01\ntitle: Existing obligation\nwording: Check before every run.\nmade: D000\nstate: open\nnodes: T001\n---\n## History\n- 2000-01-01 00:00 UTC alice: created\n").unwrap();
     std::fs::write(p.path().join("log/D000.md"), "---\nid: D000\ntitle: Promise\ndate: 1999-01-01\n---\nCheck before every run.\n").unwrap();
-    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: News\ndate: 2001-01-01\n---\nT001 may change.\n").unwrap();
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: News\ndate: 2001-01-01\n---\nT001 may change, and so may D000.\n").unwrap();
     let before = envelope(&p.run(&["check", "--json"]));
     assert_eq!(before["result"]["errors"], 0);
     assert_eq!(gate(&p, "T001", "run:legacy"), Some(6));
@@ -943,6 +943,56 @@ fn freshness_and_grouping_observe_a_preexisting_store_without_reviewing_it() {
     assert_eq!(grouped["result"]["stale_groups"][0]["links"][0]["id"], "P01");
     assert_eq!(gate(&p, "T001", "run:legacy"), Some(6));
     assert_eq!(envelope(&p.run(&["check", "--json"]))["result"]["diagnostics"], before["result"]["diagnostics"]);
+}
+
+#[test]
+fn attachment_alone_does_not_make_a_commitment_stale_but_naming_it_does() {
+    let p = two_threads();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    commitment(&p, &["nodes=[T001]"]);
+    p.ok(&["new", "question", "--title", "Which method?", "raised=E001"]);
+    commitment(&p, &["nodes=[Q01]"]);
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: news\ndate: 2999-01-01\n---\nT001 and Q01 change method.\n").unwrap();
+
+    let stale: Vec<_> = diagnostics(&p).into_iter().filter(|(_, c, _, _)| c == "stale").collect();
+    assert_eq!(stale.len(), 2, "{stale:?}");
+    assert!(stale.iter().all(|(_, _, w, s)| (w.contains("T001-") || w.contains("Q01-")) && s == "named"), "{stale:?}");
+    // Attachment still carries the obligation and requires a disposition for this action.
+    assert_eq!(gate(&p, "T001", "run:1"), Some(6));
+    assert_eq!(gate(&p, "Q01", "run:1"), Some(6));
+    dispose(&p, "run:1", "satisfied");
+    assert_eq!(gate(&p, "T001", "run:1"), Some(0));
+
+    std::fs::write(p.path().join("log/D002.md"), "---\nid: D002\ntitle: named\ndate: 2999-01-02\n---\nP01 and P02 need review.\n").unwrap();
+    let stale: Vec<_> = diagnostics(&p).into_iter().filter(|(_, c, _, _)| c == "stale").collect();
+    assert_eq!(stale.len(), 4, "{stale:?}");
+    for id in ["P01-", "P02-"] {
+        assert!(stale.iter().any(|(_, _, w, s)| w.contains(id) && s == "named"), "{stale:?}");
+    }
+}
+
+#[test]
+fn explicit_references_still_make_attached_commitments_and_questions_stale() {
+    let p = two_threads();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    // An explicit link to the same id as `nodes` still counts, as does a different input.
+    commitment(&p, &["nodes=[T001]", "links=[T001]"]);
+    commitment(&p, &["nodes=[T001]", "links=[T002]"]);
+    // `made` is evidence even when it is also the attachment target.
+    p.ok(&["new", "commitment", "--title", "From the thread", "wording=First", "made=T001", "nodes=[T001]"]);
+    // A question's `nodes` names what it concerns, so news about that subject still counts.
+    p.ok(&["new", "question", "--title", "Which method?", "raised=E001", "nodes=[T001]"]);
+    std::fs::write(p.path().join("log/D001.md"), "---\nid: D001\ntitle: news\ndate: 2999-01-01\n---\nT001 and T002 change method.\n").unwrap();
+
+    let stale: Vec<_> = diagnostics(&p).into_iter().filter(|(_, c, _, _)| c == "stale").collect();
+    assert_eq!(stale.len(), 6, "{stale:?}");
+    for id in ["P01-", "P02-", "P03-", "Q01-"] {
+        assert!(stale.iter().any(|(_, _, w, s)| w.contains(id) && s == "links"), "{stale:?}");
+    }
+    assert!(stale[..2].iter().all(|(_, _, _, s)| s == "named"), "{stale:?}");
+    assert!(stale[2..].iter().all(|(_, _, _, s)| s == "links"), "{stale:?}");
 }
 
 #[test]

@@ -681,8 +681,13 @@ pub fn freshness(store: &Store, n: &Record) -> Vec<StaleCause> {
     let Some(last) = n.last_update() else { return vec![] };
     let refs = n.refs();
     let referenced: HashSet<&str> = refs.iter().map(|(_, id)| id.as_str()).collect();
-    // Preserve §8: attachment and made count, parent does not; resolved nodes watch only themselves.
-    let watched: Vec<_> = refs.iter().filter(|(field, _)| !n.is_resolved() && *field != "parent").collect();
+    // `parent` is organisational (§3.3), and a commitment's `nodes` attaches its obligation (§12).
+    // Neither makes news about that target a review of every child or attached commitment.
+    // Explicit evidence fields still count, even when they name the same target as `nodes`.
+    // A resolved record's links are history: only a record naming it directly (perhaps to reopen it) counts.
+    let watched: Vec<_> = refs.iter()
+        .filter(|(field, _)| !n.is_resolved() && *field != "parent" && !(n.is(OwnKind::Commitment) && *field == "nodes"))
+        .collect();
     let mut causes = vec![];
     for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last)) {
         let mentioned = store.mentions(&r.text);

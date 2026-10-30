@@ -63,9 +63,11 @@ fn freshness_is_opt_in_and_a_legacy_store_keeps_its_warnings() {
     assert_eq!(freshness(&p, "T003"), json!([]), "parent is organisational");
     assert_eq!(freshness(&p, "T004"), json!([]), "resolved references are history");
     assert_eq!(freshness(&p, "D001"), json!([]), "linked records have no own stale check");
-    // Attachment/made warnings are still individually reviewable: orientation clears nothing.
-    assert_eq!(freshness(&p, "P01")[0]["via"], json!([{"field": "nodes", "id": "T001"}]));
-    assert_eq!(freshness(&p, "P01")[1]["via"], json!([{"field": "made", "id": "D000"}]));
+    // A commitment's `nodes` attachment is not watched (§8), but its `made` evidence is.
+    let attached = freshness(&p, "P01");
+    assert_eq!(attached.as_array().unwrap().len(), 1, "{attached}");
+    assert_eq!(attached[0]["record"], "D002");
+    assert_eq!(attached[0]["via"], json!([{"field": "made", "id": "D000"}]));
     assert_eq!(std::fs::read(p.path().join("plied/threads/T001.md")).unwrap(), before_bytes);
     let after = result(&p, &["check", "--json"]);
     assert_eq!(after["diagnostics"], before["diagnostics"]);
@@ -105,9 +107,10 @@ fn grouped_stale_causes_preserve_individual_diagnostics_and_reference_edges() {
     assert_eq!(groups[0]["record"], "D001");
     assert_eq!(groups[0]["named"].as_array().unwrap().iter().map(|v| v["id"].clone()).collect::<Vec<_>>(), vec![json!("T001")]);
     let linked = groups[0]["links"].as_array().unwrap();
-    assert_eq!(linked.iter().map(|v| v["id"].clone()).collect::<Vec<_>>(), vec![json!("P01"), json!("Q01"), json!("T002")]);
-    assert_eq!(linked[2]["via"], json!([{"field": "uses", "id": "T001"}]));
-    assert_eq!(linked[2]["path"], "plied/threads/T002.md");
+    // P01 is attached to T001 through `nodes`, which does not watch; Q01's `nodes` does.
+    assert_eq!(linked.iter().map(|v| v["id"].clone()).collect::<Vec<_>>(), vec![json!("Q01"), json!("T002")]);
+    assert_eq!(linked[1]["via"], json!([{"field": "uses", "id": "T001"}]));
+    assert_eq!(linked[1]["path"], "plied/threads/T002.md");
     assert_eq!(result(&p, &["check", "--group-stale", "--errors-only", "--json"])["stale_groups"], json!([]));
 }
 

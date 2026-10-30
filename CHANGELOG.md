@@ -39,6 +39,11 @@ stores using `reviews.inputs` should set `requires = ">=0.11.0"`.
   [#80](https://github.com/jupsh/plied/issues/80),
   [#65](https://github.com/jupsh/plied/issues/65),
   [#84](https://github.com/jupsh/plied/issues/84))
+- Exclude a commitment's `nodes` attachment from stale-by-link warnings.
+  News about an attached thread or question no longer makes every attached
+  commitment stale. Direct mentions, explicit evidence links and a question's
+  `nodes` still count; commitment applicability and gates are unchanged.
+  ([#75](https://github.com/jupsh/plied/issues/75))
 
 ## 0.10.0 — 2026-10-28
 

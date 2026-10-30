@@ -256,9 +256,12 @@ commitment records. Read the record first (`plied show D123`, and keep the
 ## Stale warnings: note each node's review
 
 A node goes **stale** when a dated linked record, newer than the node's last
-history line, mentions the node or anything it links to (`parent` aside). So
-one wide-citing entry (a decision or review citing many ids) makes every
-linked node stale at once. That is the design, not an error — and it does not clear itself.
+history line, mentions the node or anything it links to, except `parent` and
+a commitment's `nodes` attachment. A record about a thread does not by that
+attachment alone make all its commitments stale. Naming a commitment directly,
+or something in its `made` or `links`, still counts; a question's `nodes`
+still counts too. One wide-citing entry can therefore make several nodes
+stale at once, and a warning does not clear itself.
 A resolved record (closed thread, fulfilled or waived commitment, answered
 question) goes stale only when the entry names it directly. Then the
 question is whether the entry reopens it: say which in the note, and if it
