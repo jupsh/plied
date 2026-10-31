@@ -488,9 +488,13 @@ normalising both:
 1. Unicode NFKC;
 2. `‘ ’` become `'`, `“ ”` become `"`, no-break space becomes space;
 3. `*` and `` ` `` are removed;
-4. a hyphen at a line end between two word characters is removed with the line
+4. line-leading blockquote prefixes are removed: zero to three initial spaces,
+   then one or more `>` markers, each optionally followed by one space or tab.
+   Nested prefixes are removed together. Other `>` characters, including those
+   after four initial spaces or a leading tab, remain;
+5. a hyphen at a line end between two word characters is removed with the line
    break and the next line's indentation;
-5. runs of whitespace become one space; leading and trailing whitespace is
+6. runs of whitespace become one space; leading and trailing whitespace is
    removed.
 
 Parts are separated by an ellipsis (`…` or `...`) with any surrounding
