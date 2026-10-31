@@ -937,6 +937,15 @@ effective session: the first nonempty `--session`, `PLIED_SESSION`, or
 claims change. With one it releases only the acting agent's claims in that
 session. `release` without `--this-session` retains its all-sessions meaning.
 
+**Skill audiences.** `plied skill` and `plied skill --role full` render the
+full authoring reference. `plied skill --role participant` renders compact
+guidance for readers using claims and authorized messages while leaving record
+edits and dispositions to their authorized author. The participant inventory
+contains the relevant read, presence and messaging commands from this binary's
+parser. Other role names are usage errors (exit 2). Both renderings work without
+a repository and use the same `{version, skill}` JSON result. The selector
+chooses prose only; it neither grants permissions nor enforces project roles.
+
 **Streams.** Without `--json`, a command's result goes to stdout. Errors,
 gate reasons, guard refusals and notes go to stderr. That text is for people,
 and its wording is not part of this contract. With `--json` (§11.1), stdout
@@ -1144,7 +1153,7 @@ string or null. This also appears on full thread records returned by `find`
 | command | `result` |
 |---|---|
 | `init` | `{path}` |
-| `skill` | `{version, skill}`: the agent skill as Markdown text, rendered from this binary's version and command inventory. Needs no repository. Without `--json` the skill itself is the stdout text. |
+| `skill [--role full\|participant]` | `{version, skill}`: the selected agent skill as Markdown text, rendered from this binary's version and relevant command inventory. Needs no repository. Without `--json` the skill itself is the stdout text. The default is `full`. |
 | `context [NODE]` | project and identity discovery (§11.2), including an unconfigured directory; never writes records or runtime state |
 | `schema KIND` | record fields, examples and configured vocabularies (§11.2); works without a project |
 | `show` | a record, plus `backlinks: [{id, how: [field or "mentions", …]}]`, `messages_args: ["messages", ID]` and `claims: [claim]`; with `--linked`, `linked` (§4); with `--refs`, `refs` (below; added in 0.12.0); a plied thread or question also has `commitments: [{id, rev, state, title, chains, governs}]`, the commitments that apply to it, with their chains as in `review` (§12; added in 0.6.0; `governs` in 0.7.0, null when absent) |
