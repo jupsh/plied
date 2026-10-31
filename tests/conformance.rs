@@ -15,6 +15,42 @@ fn two_threads() -> Proj {
     p
 }
 
+// ------------------------------------------------------------------- §11 skill audiences
+
+#[test]
+fn participant_skill_is_compact_repository_free_guidance_without_authority() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| std::process::Command::new(bin()).current_dir(dir.path()).args(args).output().unwrap();
+    let full = run(&["skill"]);
+    assert!(full.status.success(), "{}", text(&full));
+    let explicit_full = run(&["skill", "--role", "full"]);
+    assert_eq!(explicit_full.stdout, full.stdout);
+
+    let out = run(&["skill", "--role", "participant", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out));
+    assert!(out.stderr.is_empty());
+    let json = envelope(&out);
+    let result = json["result"].as_object().unwrap();
+    assert_eq!(result.len(), 2, "the existing skill result shape remains unchanged");
+    assert_eq!(result["version"], env!("CARGO_PKG_VERSION"));
+    let guide = result["skill"].as_str().unwrap();
+    let plain = run(&["skill", "--role", "participant"]);
+    assert_eq!(String::from_utf8(plain.stdout).unwrap().trim_end(), guide.trim_end());
+    assert!(guide.split_whitespace().count() < 1100, "participant guidance should fit a short read");
+    assert!(guide.len() < full.stdout.len() / 2, "the compact rendering must omit authoring material");
+    for expected in ["neither grants authority", "PLIED_SESSION", "result.text", "exact wording", "sealed evidence", "plied claim", "renew", "unresolved gate remains blocked", "authoritative record updates", "acknowledgement is receipt", "Send that handoff if authorized", "release --this-session", "writability unverified"] {
+        assert!(guide.contains(expected), "missing participant requirement {expected:?}");
+    }
+    assert!(guide.contains("- `plied review`"));
+    for author_command in ["new", "set", "note", "replace", "reopen", "dispose", "scanned", "init"] {
+        assert!(!guide.contains(&format!("- `plied {author_command}`")), "author command in participant inventory: {author_command}");
+    }
+    let bad = run(&["skill", "--role", "lead", "--json"]);
+    assert_eq!(bad.status.code(), Some(2));
+    assert_eq!(envelope(&bad)["ok"], false);
+    assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none(), "selecting guidance needs no repository or filesystem writes");
+}
+
 #[test]
 fn a_baseline_tracks_sources_beyond_the_human_stale_preview() {
     let p = Proj::new();

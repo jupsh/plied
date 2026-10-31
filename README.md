@@ -127,6 +127,13 @@ and stale reviews. It needs no
 repository. Regenerate it when plied is upgraded rather than editing the copy. With `--json` the result is
 `{version, skill}` in the usual envelope.
 
+For a participant whose task permits reading, claims and messages while reserving
+record edits and dispositions to a lead, generate the shorter guide with
+`plied skill --role participant`. It retains session setup, full-record reads,
+gates, handoff and runtime-storage guidance. This selects instructions only;
+project permissions still come from the project's own rules. `plied skill`
+continues to print the full reference.
+
 ## How it works
 
 ### Optional thread summaries

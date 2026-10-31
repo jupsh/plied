@@ -6,6 +6,12 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Add `plied skill --role participant`, a compact reader, presence and messaging
+  workflow with the relevant generated command inventory. The default full
+  reference and `{version, skill}` result are unchanged. This selects guidance
+  without granting or enforcing project authority.
+  ([#105](https://github.com/jupsh/plied/issues/105), guidance portion)
+
 ## 0.12.0 — 2026-10-30
 
 The record format and JSON envelope remain at version 1. Stores using
