@@ -12,6 +12,11 @@ are versioned separately from plied itself; see
   without granting or enforcing project authority.
   ([#105](https://github.com/jupsh/plied/issues/105), guidance portion)
 
+- Strip line-leading Markdown blockquote prefixes on both sides of quotation
+  matching, including nested quotes, before joining hyphenated lines. Wrapped
+  quotations no longer need artificial ellipses; inline comparison signs remain.
+  ([#103](https://github.com/jupsh/plied/issues/103))
+
 ## 0.12.0 — 2026-10-30
 
 The record format and JSON envelope remain at version 1. Stores using

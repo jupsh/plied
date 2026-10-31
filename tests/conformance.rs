@@ -95,6 +95,23 @@ fn review_input_pins_compare_bytes_without_changing_the_exact_action_gate() {
     assert_eq!(gate(&p, "T001", "run:two"), Some(6));
 }
 
+// ------------------------------------------------------------------- §3.6 quotations
+
+#[test]
+fn blockquoted_quotations_match_across_lines_without_eliding_words() {
+    let p = Proj::new();
+    p.with_evidence();
+    p.evidence("D001", "", "> Keep the defaults as drafted. The second\n> rule applies to every run, not only the first.\n\nA comparison is x > y.");
+    p.ok(&["new", "thread", "--title", "First"]);
+    let wording = "The second rule applies to every run, not only the first.";
+    p.ok(&["new", "commitment", "--title", "Continuous quotation", "made=D001", &format!("wording={wording}"), "nodes=[T001]"]);
+    p.ok(&["new", "commitment", "--title", "Quoted quotation", "made=D001", "wording=> The second\n> rule applies to every run, not only the first."]);
+    assert!(p.set("T001", &["status=closed", "outcome.ref=D001", &format!("outcome.quote={wording}")]).status.success());
+    assert_eq!(p.code(&["new", "commitment", "--title", "Missing word", "made=D001", "wording=The rule applies to every run, not only the first."]), Some(4));
+    assert_eq!(p.code(&["new", "commitment", "--title", "Missing comparison", "made=D001", "wording=A comparison is x y."]), Some(4));
+    p.ok(&["new", "commitment", "--title", "Comparison", "made=D001", "wording=A comparison is x > y."]);
+}
+
 // ------------------------------------------------------------------- §3.7 optional synopsis
 
 #[test]
