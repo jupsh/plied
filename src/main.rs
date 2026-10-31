@@ -54,7 +54,11 @@ enum Cmd {
     /// write a plied.toml template in the canonical checkout (here outside git)
     Init,
     /// print the agent skill for this version (needs no repository)
-    Skill,
+    Skill {
+        /// guidance audience only; does not grant or enforce project permissions
+        #[arg(long, value_parser = ["full", "participant"], default_value = "full")]
+        role: String,
+    },
     /// discover project paths, configuration, identity and capabilities without writing
     Context {
         node: Option<String>,
@@ -527,7 +531,7 @@ fn assignments_of(cli: &Cli, assign: &[String], set_file: &[String]) -> Res<Vec<
 }
 
 /// The agent skill, rendered from this binary's own version and command inventory.
-fn skill_text() -> String {
+fn skill_text(role: &str) -> String {
     fn walk(cmd: &clap::Command, prefix: &str, lines: &mut Vec<String>) {
         for sub in cmd.get_subcommands() {
             if sub.is_hide_set() {
@@ -540,8 +544,19 @@ fn skill_text() -> String {
         }
     }
     let mut lines = vec![];
-    walk(&Cli::command(), "plied", &mut lines);
-    plied::skill::render(plied::VERSION, &lines)
+    if role == "participant" {
+        for sub in Cli::command().get_subcommands().filter(|sub| matches!(sub.get_name(),
+            "skill" | "context" | "schema" | "show" | "list" | "find" | "backlinks" | "tree" |
+            "frontier" | "search" | "check" | "review" | "claim" | "who" | "send" | "inbox" |
+            "ack" | "messages" | "release")) {
+            let about = sub.get_about().map(|a| a.to_string()).unwrap_or_default();
+            lines.push(format!("- `plied {}` — {about}", sub.get_name()));
+        }
+        plied::skill::render_participant(plied::VERSION, &lines)
+    } else {
+        walk(&Cli::command(), "plied", &mut lines);
+        plied::skill::render(plied::VERSION, &lines)
+    }
 }
 
 fn main() {
@@ -591,8 +606,8 @@ fn run(cli: &Cli) -> Res<i32> {
         Cmd::Context { node, who } => cmd_context(cli, node.as_deref(), who),
         Cmd::Schema { kind } => cmd_schema(cli, OwnKind::parse(kind).unwrap()),
         // no repository: the skill describes this binary, wherever it runs
-        Cmd::Skill => {
-            let text = skill_text();
+        Cmd::Skill { role } => {
+            let text = skill_text(role);
             if cli.json {
                 out_json(&json!({"version": plied::VERSION, "skill": text}));
             } else {

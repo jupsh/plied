@@ -3,7 +3,8 @@
 //! A quotation matches when, after the same normalisation of both sides, each of its parts appears
 //! in the source in order. Parts are separated by an ellipsis ("…" or "...") standing for omitted
 //! text. Normalisation: Unicode NFKC, curly quotes made straight, Markdown emphasis and code marks
-//! (`*`, backtick) removed, hyphenation at line ends joined, runs of whitespace collapsed. A match
+//! (`*`, backtick) and line-leading blockquote prefixes removed, hyphenation at line ends joined,
+//! runs of whitespace collapsed. A match
 //! says the words are there; it does not say they support the claim.
 
 use std::sync::LazyLock;
@@ -14,6 +15,7 @@ use unicode_normalization::UnicodeNormalization;
 use crate::doc::take;
 
 static ELLIPSIS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*(?:…|\.\.\.)\s*").unwrap());
+static BLOCKQUOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^ {0,3}(?:>[ \t]?)+").unwrap());
 static HYPHEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\w)-\n\s*(\w)").unwrap());
 static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 
@@ -30,6 +32,7 @@ fn nfkc_quotes(text: &str) -> String {
 
 pub fn normalise(text: &str) -> String {
     let t = nfkc_quotes(text).replace(['*', '`'], "");
+    let t = BLOCKQUOTE.replace_all(&t, "");
     let t = HYPHEN.replace_all(&t, "${1}${2}"); // hyphenated line breaks in page text
     SPACES.replace_all(&t, " ").trim().to_string()
 }
@@ -101,5 +104,23 @@ mod tests {
     fn curly_quotes_and_hyphenated_line_breaks() {
         assert!(find_quote("in the fed condition", "lasted 12.5 s in the\nfed condi-\ntion."));
         assert!(find_quote("\u{201c}is accepted", "The revised \"is accepted"));
+    }
+
+    #[test]
+    fn blockquote_prefixes_are_removed_before_joining_lines() {
+        let source = "> Keep the defaults as drafted. The second\n> rule applies to every run, not only the first.";
+        assert!(find_quote("The second rule applies to every run, not only the first.", source));
+        assert!(find_quote("> The second\n> rule applies to every run, not only the first.", source));
+        assert!(find_quote("Keep defaults, with x > y.", "  > > Keep de-\n  >> faults, with x > y."));
+        assert!(find_quote("A tab follows the marker.", ">\tA tab follows\n>the marker."));
+    }
+
+    #[test]
+    fn comparison_signs_and_indented_code_are_preserved() {
+        assert_eq!(normalise("x > y and x >> y"), "x > y and x >> y");
+        assert_eq!(normalise("    > quoted code"), "> quoted code");
+        assert_eq!(normalise("\t> quoted code"), "> quoted code");
+        assert!(!find_quote("x y", "x > y"));
+        assert!(!find_quote("The rule applies", "> The second\n> rule applies"));
     }
 }

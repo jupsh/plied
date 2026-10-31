@@ -12,6 +12,17 @@ are versioned separately from plied itself; see
   identity questions remain open; no CLI or record behavior changes.
   ([#106](https://github.com/jupsh/plied/issues/106))
 
+- Add `plied skill --role participant`, a compact reader, presence and messaging
+  workflow with the relevant generated command inventory. The default full
+  reference and `{version, skill}` result are unchanged. This selects guidance
+  without granting or enforcing project authority.
+  ([#105](https://github.com/jupsh/plied/issues/105), guidance portion)
+
+- Strip line-leading Markdown blockquote prefixes on both sides of quotation
+  matching, including nested quotes, before joining hyphenated lines. Wrapped
+  quotations no longer need artificial ellipses; inline comparison signs remain.
+  ([#103](https://github.com/jupsh/plied/issues/103))
+
 ## 0.12.0 — 2026-10-30
 
 The record format and JSON envelope remain at version 1. Stores using
