@@ -42,6 +42,14 @@ Three things follow.
 3. **Each new kind of attention invents its own rule.** #92 and #98 each
    had to define one.
 
+A later case, [#106](https://github.com/jupsh/plied/issues/106), exposes a
+second cost in `review-input`: correcting a formula's description in a design
+record required 31 replacement dispositions across five completed actions and
+11 commitments. Both implementations already used the intended formula; the
+correction changed no computed result. Detecting the new evidence bytes was
+useful. Restating the impact assessment as 31 new action dispositions was the
+cost. This case motivates the separate historical assessment in §2a below.
+
 Separately, orientation now has one flag per idea (`--summary`,
 `--freshness`, `--group-stale`, and with #94 and #95 `--linked` and `--refs`),
 and each optional field or key added within format 1 breaks older binaries
@@ -86,10 +94,77 @@ is a record revision, on any write to the node that holds the warning:
   acknowledgement with a reason. Keep `scanned` as the stored form, but
   accept it from `--reviewed` on a thread with a `--because`, so there is
   one verb.
-- `review-input` stays as it is. It concerns the evidence for a gate, and a
-  new disposition is the right act, not a note. Its `acknowledge` points to
-  `dispose … --read …`.
+- `review-input`: a new disposition is still the act that supplies a new
+  evidence claim for an action, and its ordinary `acknowledge` points to
+  `dispose … --read …`. A correction assessed after completed actions is a
+  different claim; §2a proposes a bounded historical acknowledgement without
+  replacing those actions' original dispositions. Neither form changes the gate.
 - `date` stays as it is. It is a calendar, not a record.
+
+### 2a. Historical evidence-impact assessments (design proposal, #106)
+
+Keep two claims separate:
+
+1. **What the original review read.** Its disposition and `inputs` identify
+   the evidence available to that reviewer at that action. A later correction
+   cannot change those historical bytes.
+2. **What a later reviewer concluded about the correction.** A reviewer can
+   assess a particular change and conclude that it leaves specified completed
+   actions' recorded bases unaffected. That is a new, attributed judgment;
+   plied cannot infer it from a small diff or the word "correction".
+
+Propose one explicit assessment covering a finite selection of historical
+reviews. The design must bind all of these:
+
+- The evidence record, its original full revision and the corrected full
+  revision the reviewer actually read.
+- Every covered commitment, exact action and original disposition item,
+  including that item's content identity. A list index or an action name
+  alone is insufficient: later replacement dispositions for the same action
+  must not inherit the assessment. The item-digest design needed for
+  `withdrawn` acknowledgements also applies here.
+- The reviewer's identity, time, explanation and explicit assertion that the
+  selected actions are complete. Passing a gate, closing a thread or
+  fulfilling a commitment does not establish execution or completion of
+  every action. Completion is a caller-supplied assertion, not a fact that
+  plied has independently verified.
+
+One explanation may cover several explicitly selected reviews when the
+reviewer judged the same correction against each of them. There is no
+wildcard for all actions, all commitments or future reviews. The selection
+must be visible before writing and in the resulting audit record.
+
+The write must compare the corrected evidence and every selected commitment
+against the full revisions the reviewer read, under the write lock. It must
+validate the selected disposition items and their original pins, and reject
+the whole assessment if any precondition changed. It must refuse unavailable
+evidence without probing protected content. The audit record must be durable
+and carried with the records it qualifies; a runtime cache cannot hold the
+only copy. Its representation and compatibility requirements remain open.
+
+The effect is deliberately narrow:
+
+- Preserve the original dispositions, their pins and their append-only order.
+  Report that the original input changed and that the exact change was
+  assessed as leaving specified historical reviews unaffected. Do not present
+  the old pin as current or claim the old reviewer read the corrected bytes.
+- A valid assessment can acknowledge only the `review-input` attention for
+  those selected review/input pairs at the corrected revision. Other changed
+  inputs, warnings and reviews continue to ask for attention.
+- A further evidence edit asks for attention again. A new disposition for the
+  same action is a new target and receives no inherited acknowledgement.
+- Gate verdicts remain exactly as recorded, including `blocks`. The assessment
+  supplies no missing disposition, changes no commitment state, and cannot
+  authorize a new action or replace a current review before its execution.
+- If the reviewer finds that the correction changes an action's basis, record
+  that impact and any required follow-up explicitly. Do not erase the original
+  review or label the correction unaffected to clear a warning.
+
+This is an extension to the attention design, not a new command or stored
+field in the current release. In particular, an ordinary `note --reviewed`
+continues to leave `review-input` warnings intact. Do not add a second batch
+write format just for this case; coordinate any multi-record application and
+receipt with RFC 0001.
 
 ### 3. Strict acknowledgement, opt-in
 
@@ -151,6 +226,23 @@ as a warning for one minor version.
 - `--with` and the old flags produce identical JSON.
 - A write adding `outcome.labels` under `requires = ">=0.11.0"` is refused,
   and accepted after raising it; a write not touching labels is not.
+- Reproduce #106 with 31 historical review/input pairs across several
+  completed actions and commitments. One explicitly scoped assessment covers
+  the selected change; all original dispositions and pins remain byte-for-byte
+  unchanged, and gate verdicts (including a blocking review) are unchanged.
+- Leave one review and one second changed input outside that assessment.
+  Both keep asking for attention. The original changed pin remains observable
+  alongside the later assessment; it is never reported as the corrected pin.
+- Change the evidence again, or append a new disposition for the same action.
+  The prior assessment covers neither. A changed disposition at the same list
+  index after a direct edit must not retain the old assessment either.
+- Change any selected commitment or the corrected evidence while the assessment
+  waits for the lock. Reject the entire write, with no partial acknowledgement.
+  Unknown targets, mismatched original pins, and missing or sealed evidence
+  also refuse without leaking protected data.
+- Prune the revision cache and round-trip the stored assessment. Its target
+  identities and audit explanation survive, while unavailable historical bytes
+  remain explicitly unavailable rather than recovered from the current source.
 
 ## Open questions
 
@@ -163,3 +255,13 @@ as a warning for one minor version.
 - Which exact representation does a withdrawn item's digest cover, and
   how is that digest carried in a history line and checked on later reads?
   List position is a locator, not a content identity.
+- Where should a historical evidence-impact assessment live so one statement
+  can cover several commitments, remain append-only and travel with an export?
+  How is its finite target selection represented without creating an unchecked
+  reference or leaking a target hidden by the access policy?
+- What exact bytes identify a disposition item, and how does the assessment
+  bind that digest as well as the full record revision checked at write time?
+- How should a caller assert and support completion of the selected actions?
+  The implementation must not infer it from existing gate or thread states.
+- How should JSON expose the historical changed pin and its later assessment
+  while preserving diagnostic identities and existing exact-action gate behavior?

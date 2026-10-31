@@ -6,6 +6,12 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Extend draft RFC 0002 with a historical evidence-impact assessment for
+  corrections affecting completed actions: finite review targets, preserved
+  original pins, unchanged gates and required acceptance cases. Storage and
+  identity questions remain open; no CLI or record behavior changes.
+  ([#106](https://github.com/jupsh/plied/issues/106))
+
 - Add `plied skill --role participant`, a compact reader, presence and messaging
   workflow with the relevant generated command inventory. The default full
   reference and `{version, skill}` result are unchanged. This selects guidance

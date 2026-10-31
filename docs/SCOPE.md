@@ -173,6 +173,13 @@ records a new review; an unpinned disposition remains explicitly unbound.
 These claims are advisory and do not change the exact-action gate. They
 neither attach commitments nor carry stale-by-link warnings.
 
+A reported wording correction required 31 replacement dispositions for
+completed actions ([#106](https://github.com/jupsh/plied/issues/106)).
+[RFC 0002](rfc/0002-attention.md) §2a now proposes a distinct, explicitly scoped historical impact assessment:
+preserve what the original review read, record the later judgment about the
+correction, and leave gates unchanged. Its storage, item identity and completion
+assertion need design; it is not an implemented acknowledgement mechanism.
+
 A pin identifies bytes without retaining them. `revs/` remains a disposable
 cache, including after `gc --all`; preserving the exact source bytes, for
 example in git, is still necessary. A raw-file SHA-256 is not a git object
