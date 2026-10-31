@@ -6,6 +6,13 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+## 0.13.0 — 2026-10-30
+
+The record format and JSON envelope remain at version 1. Stores relying on
+blockquote quotation matching should set `requires = ">=0.13.0"`; earlier
+versions can reject those quotations. RFC 0002 remains a draft; historical
+evidence-impact assessments are not implemented in this release.
+
 - Extend draft RFC 0002 with a historical evidence-impact assessment for
   corrections affecting completed actions: finite review targets, preserved
   original pins, unchanged gates and required acceptance cases. Storage and

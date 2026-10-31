@@ -488,8 +488,9 @@ normalising both:
 1. Unicode NFKC;
 2. `‘ ’` become `'`, `“ ”` become `"`, no-break space becomes space;
 3. `*` and `` ` `` are removed;
-4. line-leading blockquote prefixes are removed: zero to three initial spaces,
-   then one or more `>` markers, each optionally followed by one space or tab.
+4. since 0.13.0, line-leading blockquote prefixes are removed: zero to three
+   initial spaces, then one or more `>` markers, each optionally followed by
+   one space or tab.
    Nested prefixes are removed together. Other `>` characters, including those
    after four initial spaces or a leading tab, remain;
 5. a hyphen at a line end between two word characters is removed with the line
@@ -500,6 +501,9 @@ normalising both:
 Parts are separated by an ellipsis (`…` or `...`) with any surrounding
 whitespace. A quotation with no parts never matches. Matching is
 case-sensitive.
+
+Stores relying on blockquote prefix removal should set `requires = ">=0.13.0"`:
+earlier versions can reject quotations that match under this rule.
 
 ### 3.7 Optional thread body summary
 
@@ -937,10 +941,10 @@ effective session: the first nonempty `--session`, `PLIED_SESSION`, or
 claims change. With one it releases only the acting agent's claims in that
 session. `release` without `--this-session` retains its all-sessions meaning.
 
-**Skill audiences.** `plied skill` and `plied skill --role full` render the
-full authoring reference. `plied skill --role participant` renders compact
-guidance for readers using claims and authorized messages while leaving record
-edits and dispositions to their authorized author. The participant inventory
+**Skill audiences (since 0.13.0).** `plied skill` and `plied skill --role full`
+render the full authoring reference. `plied skill --role participant` renders
+compact guidance for readers using claims and authorized messages while leaving
+record edits and dispositions to their authorized author. The participant inventory
 contains the relevant read, presence and messaging commands from this binary's
 parser. Other role names are usage errors (exit 2). Both renderings work without
 a repository and use the same `{version, skill}` JSON result. The selector
