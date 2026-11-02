@@ -761,6 +761,9 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             let apps = node_commitments(&st, r);
             let others: Vec<_> =
                 ctx.messages().claims(false).into_iter().filter(|o| o.node == *node && (o.agent != c.agent || o.session != c.session)).collect();
+            if others.iter().any(|o| o.agent == who.agent) {
+                plied::notes::note(plied::messages::shared_agent_note(&who.agent));
+            }
             if json {
                 let mut o = c.to_json();
                 o.as_object_mut().unwrap().insert("commitments".into(), commitments_json(&apps));
@@ -823,13 +826,17 @@ fn dispatch(ctx: &Ctx, cli: &Cli) -> Res<i32> {
             }
             let text = if text == "-" { read_stdin()? } else { text.clone() };
             let (e, fresh) = ctx.messages().send(node, &text, &who.agent, who.session.as_deref(), to, reply_to.as_deref(), id.as_deref())?;
+            // Use the recorded snapshot, including on an idempotent retry.
+            if plied::val::list_items(e.get("present")).iter().any(|p| p.get("agent").and_then(Value::as_str) == Some(who.agent.as_str()) && p.get("session") != e.get("session")) {
+                plied::notes::note(plied::messages::shared_agent_note(&who.agent));
+            }
             if json {
                 out_json(&json!({"event": e, "recorded_now": fresh}));
             } else {
                 let status = if fresh { "sent" } else { "already recorded (retry with the same id)" };
                 let to_s = e.get("to").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default();
                 let eid = e.get("id").and_then(Value::as_str).unwrap_or_default();
-                outln!("{status}: {eid} on {node} to {}", if to_s.is_empty() { "nobody (no live claims or subscribers)".into() } else { to_s });
+                outln!("{status}: {eid} on {node} to {}", if to_s.is_empty() { "nobody (no recipients after excluding the sending agent)".into() } else { to_s });
             }
             Ok(0)
         }

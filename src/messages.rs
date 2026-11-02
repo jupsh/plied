@@ -99,6 +99,11 @@ impl Claim {
     }
 }
 
+/// Messaging and read/ack state are agent-scoped, even when claims distinguish sessions.
+pub fn shared_agent_note(agent: &str) -> String {
+    format!("send excludes its own agent ({agent}) across all sessions; concurrent workers needing separate inboxes must use distinct agent names (PLIED_AGENT or --as), including when claiming; read and ack are per agent")
+}
+
 pub struct Messages<'a> {
     cfg: &'a Config,
     policy: &'a Policy,
