@@ -6,6 +6,12 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+## 0.14.0 — 2026-11-02
+
+The record format and JSON envelope remain at version 1. `context.other_claims`
+is additive. Claims remain non-exclusive, and message recipients and read/ack
+state remain per agent.
+
 - Surface other readable live claims in `context` and the Claude session-start
   hook. Successful record writes note overlapping claims on the record or a
   commitment's directly attached nodes, including attachments before a change.
