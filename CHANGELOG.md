@@ -6,6 +6,13 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Explain that messaging excludes the sending agent in every session. `claim`
+  and `send` note when another session shares that name, and the skill explains
+  how distinct agent names give concurrent workers separate inboxes. An empty
+  recipient set no longer claims there were no live claims. Session recipient
+  and acknowledgement redesign remains separate work.
+  ([#112](https://github.com/jupsh/plied/issues/112))
+
 ## 0.13.0 — 2026-10-30
 
 The record format and JSON envelope remain at version 1. Stores relying on

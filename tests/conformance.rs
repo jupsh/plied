@@ -525,6 +525,41 @@ fn unsupported_event_versions_are_skipped_and_reported() {
 }
 
 #[test]
+fn same_agent_sessions_explain_recipient_exclusion_and_distinct_agent_setup() {
+    let p = Proj::new();
+    p.ok(&["new", "thread", "--title", "Shared work"]);
+    p.ok(&["claim", "T001", "--session", "aaaa1111"]);
+    let claim = p.run(&["claim", "T001", "--session", "bbbb2222", "--json"]);
+    assert!(claim.status.success());
+    assert!(claim.stderr.is_empty());
+    let claimed = envelope(&claim);
+    assert_eq!(claimed["result"]["others"][0]["session"], "aaaa1111");
+    assert!(claimed["notes"][0].as_str().unwrap().contains("distinct agent names"));
+    let sent = p.run(&["send", "T001", "hello A", "--session", "bbbb2222", "--to", "alice", "--json"]);
+    assert!(sent.status.success());
+    assert!(sent.stderr.is_empty());
+    let sent = envelope(&sent);
+    assert_eq!(sent["result"]["event"]["to"], serde_json::json!([]));
+    assert_eq!(sent["result"]["event"]["present"].as_array().unwrap().len(), 2);
+    assert!(sent["notes"][0].as_str().unwrap().contains("read and ack are per agent"));
+    let plain = p.run(&["send", "T001", "hello again", "--session", "bbbb2222"]);
+    assert!(plain.status.success());
+    assert!(!text(&plain).contains("no live claims"));
+    assert!(text(&plain).contains("excluding the sending agent"));
+    p.ok(&["release", "--this-session", "--session", "aaaa1111"]);
+    let mid = sent["result"]["event"]["id"].as_str().unwrap();
+    let retried = envelope(&p.run(&["send", "T001", "hello A", "--session", "bbbb2222", "--to", "alice", "--id", mid, "--json"]));
+    assert_eq!(retried["result"]["recorded_now"], false);
+    assert_eq!(retried["result"]["event"], sent["result"]["event"]);
+    assert_eq!(retried["notes"], sent["notes"], "explain the recorded presence even when claims changed");
+    assert!(p.run_as("bob", &["claim", "T001", "--session", "bbbb2222"]).status.success());
+    let distinct = envelope(&p.run(&["send", "T001", "hello Bob", "--session", "aaaa1111", "--json"]));
+    assert_eq!(distinct["result"]["event"]["to"], serde_json::json!(["bob"]));
+    let inbox = envelope(&p.run_as("bob", &["inbox", "--peek", "--json"]));
+    assert_eq!(inbox["result"]["messages"].as_array().unwrap().len(), 1);
+}
+
+#[test]
 fn recipients_are_fixed_when_a_message_is_sent() {
     let p = two_threads();
     p.run_as("alice", &["claim", "T001"]);

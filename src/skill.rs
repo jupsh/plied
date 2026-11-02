@@ -54,7 +54,10 @@ plied who
 
 Claiming announces presence, without granting approval or record-edit authority.
 Read other live claims, coordinate as your task permits, and renew with `claim`
-before the lease expires. Work only within the assigned scope.
+before the lease expires. Messaging excludes your own agent name in every session;
+concurrent workers needing separate inboxes use distinct `PLIED_AGENT` names,
+including when claiming. Read and acknowledgement state are per agent.
+Work only within the assigned scope.
 
 Before a governed action, review its exact action name and relevant nodes with
 `review --action kind:instance --gate`. The gate checks only the nodes and action
@@ -465,8 +468,11 @@ belong to whoever made them.
 `claim` is an expiring lease, not a lock or a proof of life. Message the
 node, not the person: `plied send T001 "…" --id <your-unique-id>` reaches
 whoever is on it now plus subscribers; recipients are fixed at send time,
-and retrying with the same `--id` is recorded once. `inbox` marks messages
-read (`--peek` does not); `ack` is a receipt, never an approval.
+and retrying with the same `--id` is recorded once. Your own agent name is excluded,
+even in another session or with `--to`. Concurrent workers needing separate
+inboxes use distinct `PLIED_AGENT` names (or `--as`), including when claiming;
+`read` and `ack` state are per agent. `inbox` marks messages read (`--peek` does
+not); `ack` is a receipt, never an approval.
 
 Claims are not exclusive. `claim` and `show` list the others on the node:
 someone else's live claim means they may be working there too, so read

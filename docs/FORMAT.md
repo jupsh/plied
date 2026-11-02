@@ -642,6 +642,15 @@ subscribers, without the sender. Claiming a node later does not deliver
 earlier messages. A successor reads them with `plied messages`. A
 `delivered` event is per session; a recipient's `read` and `ack` are per
 agent. An acknowledgement records receipt, never approval or completion.
+The sender's agent is excluded across all sessions, even with `--to` naming
+that agent. Claims distinguish sessions but do not create separate inboxes:
+concurrent workers needing independent inboxes use distinct agent names,
+including on their claims. When `claim` sees another session of the same
+agent, or a sent message's recorded `present` includes one, the command adds
+an advisory note explaining this limitation and the distinct-agent setup.
+The note is in envelope `notes` under `--json`. An empty recipient set is
+reported without implying there were no live claims. Delivery, read and
+acknowledgement semantics are unchanged.
 
 **Ids and retries.** Event ids are unique across all logs plied may read
 (§9). Writers generate a ULID unless the caller supplies an id. When a
