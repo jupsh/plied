@@ -97,6 +97,21 @@ impl Claim {
     pub fn active(&self) -> bool {
         self.expires() > Utc::now()
     }
+
+    pub fn held_by(&self, agent: &str, session: Option<&str>) -> bool {
+        self.agent == agent && self.session.as_deref() == session
+    }
+
+    pub fn with_expiry(&self) -> Value {
+        let mut value = self.to_json();
+        value["expires"] = json!(self.expires().to_rfc3339());
+        value
+    }
+
+    pub fn awareness(&self) -> String {
+        let session = self.session.as_deref().unwrap_or("none");
+        format!("{}: {} (session {session}, lease until {}); read `plied messages {}` and coordinate before overlapping; claims are presence, not exclusive", self.node, self.agent, iso_at(self.expires()), self.node)
+    }
 }
 
 /// Messaging and read/ack state are agent-scoped, even when claims distinguish sessions.
@@ -330,6 +345,13 @@ impl<'a> Messages<'a> {
         // anything that is not a claim plied wrote is skipped, and dropped at the next save
         let out: Vec<Claim> = val::list_items(data.get("claims")).iter().filter_map(Claim::from_json).collect();
         if include_expired { out } else { out.into_iter().filter(Claim::active).collect() }
+    }
+
+    /// Runtime claims are shown only for nodes present in the policy-filtered store.
+    pub fn visible_claims(&self, store: &crate::records::Store) -> Vec<Claim> {
+        let mut claims: Vec<_> = self.claims(false).into_iter().filter(|c| store.get(&c.node).is_some()).collect();
+        claims.sort_by(|a, b| (&a.node, &a.agent, &a.session).cmp(&(&b.node, &b.agent, &b.session)));
+        claims
     }
 
     fn save_claims(&self, claims: &[Claim]) -> Res<()> {

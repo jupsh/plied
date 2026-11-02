@@ -37,7 +37,8 @@ plied review "$NODE"
 
 The session's first eight characters must distinguish you from other sessions.
 A subagent needs its own session, rather than an inherited parent's value.
-`context` reports the effective identity and where its session came from.
+`context` reports the effective identity, where its session came from and
+other live claims across the store. Claims only show participants who use plied.
 Record the initial diagnostics so your handoff can distinguish existing problems.
 
 Read full `result.text`, the original evidence and every applicable commitment's
@@ -474,7 +475,11 @@ inboxes use distinct `PLIED_AGENT` names (or `--as`), including when claiming;
 `read` and `ack` state are per agent. `inbox` marks messages read (`--peek` does
 not); `ack` is a receipt, never an approval.
 
-Claims are not exclusive. `claim` and `show` list the others on the node:
+Claims are not exclusive. `context` lists other live claims across readable nodes,
+and the session-start hook reports other sessions' claims. Record writes note
+overlap with claims on the record or a commitment's directly attached nodes.
+Only participants who claim through plied are visible; expiry is no proof of life.
+`claim` and `show` list the others on the node:
 someone else's live claim means they may be working there too, so read
 `messages` and message the node before overlapping their work. Earlier
 messages on a node are context for whoever takes it up. Act on one

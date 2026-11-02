@@ -984,7 +984,7 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
             "here": fsx::resolve(cli.c.as_deref().unwrap_or_else(|| Path::new("."))),
             "runtime": null, "runtime_access": null, "branch": null, "canonical_branch": null,
             "write_blockers": ["no plied.toml; initialize the selected canonical checkout with plied init"],
-            "identity": identity, "session_seen": null, "vocabularies": plied::schema::vocabularies(None), "linked_sources": [],
+            "identity": identity, "session_seen": null, "other_claims": [], "vocabularies": plied::schema::vocabularies(None), "linked_sources": [],
             "capabilities": capabilities, "next": "plied init", "node": null}), cli.json);
     };
     let cfg = &repo.cfg;
@@ -1001,12 +1001,14 @@ fn cmd_context(cli: &Cli, node: Option<&str>, args: &WhoArgs) -> Res<i32> {
         "runtime_access": {"writability": "unverified", "reason": "Filesystem writability has not been checked. Claims, messages, releases, record writes and caches need runtime writes. A filesystem error may require permission or a writable runtime selected with PLIED_RUNTIME; writable storage grants no record-edit authority."},
         "configuration": {"path": cfg.path, "format": cfg.format, "requires": cfg.requires.as_ref().map(ToString::to_string), "compatible": cfg.compat_problems().is_empty()},
         "branch": repo.branch(), "canonical_branch": cfg.canonical_branch, "write_blockers": blockers,
-        "identity": identity, "session_seen": session_seen, "vocabularies": plied::schema::vocabularies(Some(cfg)),
+        "identity": identity, "session_seen": session_seen, "other_claims": [], "vocabularies": plied::schema::vocabularies(Some(cfg)),
         "linked_sources": cfg.sources.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), "capabilities": capabilities, "node": null});
+    let policy = Rc::new(Policy::new(cfg)?);
+    let ctx = Ctx { lock: FileLock::new(repo.runtime.join("lock"), 15.0), repo, policy };
+    let st = ctx.store()?;
+    value["other_claims"] = json!(ctx.messages().visible_claims(&st).iter()
+        .filter(|c| !c.held_by(&who.agent, who.session.as_deref())).map(|c| c.with_expiry()).collect::<Vec<_>>());
     if let Some(id) = node {
-        let policy = Rc::new(Policy::new(cfg)?);
-        let ctx = Ctx { lock: FileLock::new(repo.runtime.join("lock"), 15.0), repo, policy };
-        let st = ctx.store()?;
         let r = st.get(id).ok_or_else(|| Fail::new(format!("no record {id}")))?;
         value["node"] = json!({"id": r.id, "show_args": ["show", r.id], "messages_args": ["messages", r.id],
             "claims": node_claims(&ctx, &r.id), "commitments": commitments_json(&node_commitments(&st, r))});

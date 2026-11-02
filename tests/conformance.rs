@@ -751,6 +751,94 @@ fn discovery_works_without_configuration_and_writes_nothing() {
 }
 
 #[test]
+fn context_and_session_start_surface_only_other_readable_live_claims() {
+    let p = two_threads();
+    p.ok(&["new", "thread", "--title", "Private"]);
+    p.ok(&["claim", "T001"]);
+    p.ok(&["claim", "T001", "--session", "another-alice"]);
+    assert!(p.run_as("bob", &["claim", "T002", "--session", "bob-session"]).status.success());
+    assert!(p.run_as("hidden-agent", &["claim", "T003", "--session", "hidden-session"]).status.success());
+    p.edit("plied.toml", "sealed = []", "sealed = [\"T003-private\"]");
+    let path = p.path().join(".git/plied/claims.json");
+    let mut stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let mut expired = stored["claims"][0].clone();
+    expired["agent"] = serde_json::json!("expired-agent");
+    expired["renewed"] = serde_json::json!("2000-01-01T00:00:00Z");
+    stored["claims"].as_array_mut().unwrap().push(expired);
+    let mut missing = stored["claims"][0].clone();
+    missing["node"] = serde_json::json!("MISSING");
+    missing["agent"] = serde_json::json!("missing-agent");
+    stored["claims"].as_array_mut().unwrap().push(missing);
+    std::fs::write(&path, stored.to_string()).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let context = envelope(&p.run(&["context", "--json"]));
+    let claims = context["result"]["other_claims"].as_array().unwrap();
+    assert_eq!(claims.len(), 2, "{context}");
+    assert_eq!(claims[0]["session"], "another-alice");
+    assert_eq!(claims[1]["node"], "T002");
+    assert!(claims.iter().all(|c| chrono::DateTime::parse_from_rfc3339(c["expires"].as_str().unwrap()).is_ok()));
+    assert_eq!(std::fs::read(&path).unwrap(), before, "context never renews or prunes claims");
+    for hidden in ["hidden-agent", "hidden-session", "T003", "expired-agent", "missing-agent", "MISSING"] {
+        assert!(!context.to_string().contains(hidden), "leaked {hidden}");
+    }
+    let hook = |event: &str| {
+        use std::io::Write;
+        let mut child = std::process::Command::new(bin()).args(["hook", "claude"])
+            .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        let input = serde_json::json!({"session_id": "sess12345678", "hook_event_name": event, "cwd": p.path()});
+        child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap()
+    };
+    assert_eq!(hook("UserPromptSubmit"), "");
+    let startup: serde_json::Value = serde_json::from_str(&hook("SessionStart")).unwrap();
+    let said = startup["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
+    assert!(said.contains("another-alice") && said.contains("bob-session"), "{said}");
+    assert!(said.contains("distinct agent names"));
+    for hidden in ["hidden-agent", "hidden-session", "T003", "expired-agent", "missing-agent", "MISSING"] {
+        assert!(!said.contains(hidden), "leaked {hidden}");
+    }
+    assert_eq!(hook("UserPromptSubmit"), "", "the overview is only at session start");
+}
+
+#[test]
+fn record_writes_note_other_claims_on_direct_attachments_before_and_after() {
+    let p = two_threads();
+    p.evidence("E001", "", "Read the evidence before acting.");
+    p.ok(&["claim", "T001"]);
+    let own = envelope(&p.run(&["note", "T001", "own claim", "--expect", &p.rev("T001"), "--json"]));
+    assert_eq!(own["notes"], serde_json::json!([]));
+    assert!(p.run_as("bob", &["claim", "T001", "--session", "bob-session"]).status.success());
+    let old = p.rev("T001");
+    let note = p.run(&["note", "T001", "coordinate", "--expect", &old, "--json"]);
+    assert!(note.status.success(), "{}", text(&note));
+    assert!(note.stderr.is_empty());
+    let notes = envelope(&note)["notes"].to_string();
+    assert!(notes.contains("T001") && notes.contains("bob-session") && notes.contains("lease until"), "{notes}");
+    assert_eq!(p.code(&["note", "T001", "old read", "--expect", &old]), Some(3), "awareness never replaces revision checks");
+    let created = p.run(&["new", "commitment", "--title", "Direct", "made=E001", "wording=Read the evidence before acting.", "nodes=T001", "--json"]);
+    assert!(created.status.success());
+    assert!(envelope(&created)["notes"].to_string().contains("bob-session"));
+    p.ok(&["claim", "T002", "--session", "another-alice"]);
+    p.ok(&["new", "commitment", "--title", "Reverse", "made=E001", "wording=Read the evidence before acting."]);
+    assert!(p.set("T002", &["links=P02"]).status.success());
+    let dispose = p.run(&["dispose", "P02", "--action", "run:one", "--disposition", "not-triggered", "--because", "not yet", "--expect", &p.rev("P02"), "--json"]);
+    assert!(dispose.status.success(), "{}", text(&dispose));
+    let notes = envelope(&dispose)["notes"].to_string();
+    assert!(notes.contains("T002") && notes.contains("another-alice") && notes.contains("send excludes its own agent"), "{notes}");
+    assert!(!notes.contains("bob-session"), "direct attachments only");
+    let moved = p.run(&["set", "P01", "nodes=T002", "--expect", &p.rev("P01"), "--json"]);
+    assert!(moved.status.success());
+    let notes = envelope(&moved)["notes"].to_string();
+    assert!(notes.contains("bob-session") && notes.contains("another-alice"), "old and new attachments: {notes}");
+    p.edit("plied.toml", "sealed = []", "sealed = [\"T002-second\"]");
+    let hidden = p.run(&["note", "P01", "unchanged attachment", "--expect", &p.rev("P01"), "--json"]);
+    assert!(hidden.status.success());
+    assert_eq!(envelope(&hidden)["notes"], serde_json::json!([]), "never expose a sealed node's claim");
+}
+
+#[test]
 fn context_and_show_expose_node_conversation_and_presence_without_sealed_records() {
     let p = two_threads();
     p.append_config("[checks]\nactors = [\"alice\", \"bob\"]\naction_kinds = [\"run\", \"report\"]\n");

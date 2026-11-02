@@ -63,7 +63,7 @@ fn run(stdin_text: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let requires = repo.cfg.requires.as_ref().map(ToString::to_string);
     let change = if can_say { crate::session::observe(&repo.runtime, &session, requires.as_deref()) } else { None };
     let sig = msgs.signature();
-    if state.get("sig").and_then(Value::as_str) == Some(sig.as_str()) && !renewed && change.is_none() {
+    if state.get("sig").and_then(Value::as_str) == Some(sig.as_str()) && !renewed && change.is_none() && event != "SessionStart" {
         save(&state_p, &state);
         return Ok(None);
     }
@@ -73,6 +73,15 @@ fn run(stdin_text: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
     }
     let pending = msgs.undelivered_for_session(&session);
     let mut lines: Vec<String> = change.into_iter().map(|c| format!("plied: {c}.")).collect();
+    if event == "SessionStart" {
+        let store = crate::records::Store::load(&repo.cfg, None, &policy).map_err(|e| e.msg)?;
+        let claims: Vec<_> = msgs.visible_claims(&store).into_iter().filter(|c| c.session.as_deref() != Some(&session)).collect();
+        if !claims.is_empty() {
+            lines.push("plied: other live claims (only participants who claim through plied; leases are not proof of life):".into());
+            lines.extend(claims.iter().map(|c| format!("- {}", c.awareness())));
+            lines.push("Messaging excludes your own agent name across sessions; concurrent workers needing separate inboxes use distinct agent names, including when claiming.".into());
+        }
+    }
     if !pending.is_empty() {
         lines.push(format!("plied: {} new message(s) on nodes you have claimed:", pending.len()));
         for (agent, m) in &pending {
