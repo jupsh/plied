@@ -2008,3 +2008,185 @@ fn the_gate_leaves_out_a_commitment_that_does_not_govern_the_action() {
     assert_eq!(gate(&p, "T001", "run:1"), Some(6));
 }
 
+
+// --------------------------------------------- performance compatibility fixtures
+
+#[test]
+fn review_chains_keep_shortest_path_ties_and_terminate_cycles() {
+    let p = Proj::new();
+    p.with_evidence();
+    p.evidence("E001", "", "Review before every run.");
+    std::fs::create_dir_all(p.path().join("plied/threads")).unwrap();
+    std::fs::create_dir_all(p.path().join("plied/commitments")).unwrap();
+    for (id, meta) in [
+        ("T001", "status: waiting\nwaiting_on: [T002]\nuses: [T003]\nparent: T005\n"),
+        ("T002", "status: open\nuses: [T004]\n"),
+        ("T003", "status: waiting\nwaiting_on: [T004]\nparent: T005\n"),
+        ("T004", "status: open\nuses: [T001, P01]\n"),
+        ("T005", "status: open\nparent: T001\n"),
+    ] {
+        std::fs::write(p.path().join(format!("plied/threads/{id}.md")), format!("---\nid: {id}\ntitle: {id}\n{meta}---\n")).unwrap();
+    }
+    for (id, meta) in [
+        ("P01", "state: open\nnodes: [T004]\nreviews:\n  - action: run:1\n    disposition: acting\n  - action: run:2\n    disposition: blocks\n"),
+        ("P02", "state: open\napplies: subtree\nnodes: [T005]\n"),
+        ("P03", "state: open\napplies: project\n"),
+        ("P04", "state: fulfilled\nnodes: [T004]\nresolved_by: E001\n"),
+    ] {
+        std::fs::write(
+            p.path().join(format!("plied/commitments/{id}.md")),
+            format!("---\nid: {id}\ntitle: {id}\nwording: Review before every run.\nmade: E001\n{meta}---\n"),
+        ).unwrap();
+    }
+    // Two equal-length routes reach T004. waiting_on wins over uses; cycles terminate.
+    let out = p.run(&["review", "T001", "T003", "T001", "--action", "run:1", "--gate", "--json"]);
+    assert_eq!(out.status.code(), Some(6));
+    let v = envelope(&out);
+    let cs = v["result"]["commitments"].as_array().unwrap();
+    assert_eq!(cs.iter().map(|c| c["id"].as_str().unwrap()).collect::<Vec<_>>(), ["P01", "P02", "P03"]);
+    assert_eq!(cs[0]["chains"], serde_json::json!([
+        "T003 waiting_on T004 ← P01",
+        "T003 waiting_on T004 uses P01",
+        "T001 waiting_on T002 uses T004 ← P01",
+        "T001 waiting_on T002 uses T004 uses P01",
+    ]));
+    assert_eq!(cs[1]["chains"], serde_json::json!([
+        "T001 is under T005 ← P02 (applies: subtree)",
+        "T003 is under T005 ← P02 (applies: subtree)",
+    ]));
+    assert_eq!(cs[2]["chains"], serde_json::json!(["project-wide"]));
+    assert_eq!(cs[0]["reviews"].as_array().unwrap().len(), 1, "only the requested action's review");
+    assert_eq!(v["result"]["gate"]["reasons"], serde_json::json!([
+        "P02: no disposition recorded for run:1",
+        "P03: no disposition recorded for run:1",
+    ]));
+    let shown = envelope(&p.run(&["show", "T001", "--json"]));
+    let claimed = envelope(&p.run(&["claim", "T001", "--json"]));
+    assert_eq!(shown["result"]["commitments"], claimed["result"]["commitments"]);
+    assert_eq!(shown["result"]["commitments"][0]["chains"], serde_json::json!([
+        "T001 waiting_on T002 uses T004 ← P01",
+        "T001 waiting_on T002 uses T004 uses P01",
+    ]));
+}
+
+// ---------------------------------------------------------------------- §11.1 queries
+
+#[test]
+fn find_regexes_preserve_case_options_nesting_and_list_matching() {
+    let p = Proj::new();
+    for title in ["alpha", "ALPHA", "beta"] {
+        p.ok(&["new", "thread", "--title", title]);
+    }
+    assert!(p.set("T001", &["links=[T002, T003]"]).status.success());
+    assert!(p.set("T002", &["links=[T003]"]).status.success());
+    let ids = |query: &str| {
+        let v = envelope(&p.run(&["find", query, "--json"]));
+        v["result"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+    };
+    assert_eq!(ids(r#"{"$and":[{"title":{"$regex":"^alpha$","$options":"i"}},{"title":{"$regex":"^alpha$"}}]}"#), ["T001"]);
+    assert_eq!(ids(r#"{"title":{"$not":{"$regex":"^alpha$","$options":"i"}}}"#), ["T003"]);
+    assert_eq!(ids(r#"{"links":{"$regex":"002$"}}"#), ["T001"]);
+    assert_eq!(ids(r#"{"title":{"$regex":"^alpha$","$options":"i"}}"#), ["T001", "T002"]);
+    p.edit("plied/threads/T002-alpha.md", "title: ALPHA", "title: alphabet");
+    assert_eq!(ids(r#"{"title":{"$regex":"^alpha$","$options":"i"}}"#), ["T001"]);
+}
+
+#[test]
+fn find_checks_regex_syntax_when_a_condition_is_reached() {
+    let p = Proj::new();
+    let invalid = r#"{"title":{"$regex":"["}}"#;
+    assert_eq!(envelope(&p.run(&["find", invalid, "--json"]))["result"], serde_json::json!([]), "an empty store evaluates no conditions");
+    p.ok(&["new", "thread", "--title", "alpha"]);
+    for query in [
+        r#"{"id":"T999","title":{"$regex":"["}}"#,
+        r#"{"title":{"$eq":"missing","$regex":"["}}"#,
+    ] {
+        let out = p.run(&["find", query, "--json"]);
+        assert_eq!(out.status.code(), Some(0), "a skipped condition is not compiled: {}", text(&out));
+        assert_eq!(envelope(&out)["result"], serde_json::json!([]));
+    }
+    for query in [
+        invalid,
+        r#"{"missing":{"$regex":"["}}"#,
+        r#"{"$or":[{"id":"T001"},{"title":{"$regex":"["}}]}"#,
+        r#"{"$and":[{"id":"T999"},{"title":{"$regex":"["}}]}"#,
+        r#"{"title":{"$not":{"$regex":"["}}}"#,
+    ] {
+        let out = p.run(&["find", query, "--json"]);
+        assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+        let v = envelope(&out);
+        assert_eq!(v["error"]["kind"], "query");
+        assert!(v["error"]["message"].as_str().unwrap().starts_with("$regex"), "{v}");
+    }
+}
+
+#[test]
+fn stale_news_combines_mentions_and_sorts_before_limiting() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    std::fs::create_dir_all(p.path().join("plied/threads")).unwrap();
+    for i in 1..=3 {
+        let extra = if i == 1 { "uses: [T003, T002]\n" } else { "" };
+        std::fs::write(
+            p.path().join(format!("plied/threads/T{i:03}.md")),
+            format!("---\nid: T{i:03}\ntitle: node\nstatus: open\n{extra}---\n- 2000-01-01 00:00 UTC — Created.\n"),
+        ).unwrap();
+    }
+    for i in 1..=8 {
+        std::fs::write(
+            p.path().join(format!("log/D{i:03}.md")),
+            format!("---\nid: D{i:03}\ntitle: news\ndate: 2999-01-01\nrelated: [T003, T001, T002, T001]\n---\nT001 and T002 change.\n"),
+        ).unwrap();
+    }
+    let v = envelope(&p.run(&["check", "--json"]));
+    let stale: Vec<_> = v["result"]["diagnostics"].as_array().unwrap().iter().filter(|d| d["code"] == "stale").collect();
+    assert_eq!(stale.len(), 3, "{v}");
+    assert_eq!(stale[0]["where"], "plied/threads/T001.md");
+    let news = (1..=6).map(|i| format!("D{i:03} (cites T001, T002, T003)")).collect::<Vec<_>>().join("; ");
+    assert_eq!(stale[0]["message"], format!("records newer than this node's last history line name it: {news} …"));
+}
+
+#[test]
+fn stale_uses_each_nodes_history_and_the_current_linked_text() {
+    let p = Proj::new();
+    p.append_config("[[sources]]\nname = \"log\"\nglob = \"log/*.md\"\nid = \"^D[0-9]{3}$\"\ndate = \"date\"\ntime = \"time\"\n");
+    std::fs::create_dir_all(p.path().join("log")).unwrap();
+    std::fs::create_dir_all(p.path().join("plied/threads")).unwrap();
+    for (id, extra, history) in [
+        ("T001", "uses: [T002]\nlinks: [D003]\n", "- 2000-01-02 12:30 UTC — Created."),
+        ("T002", "", ""),
+        ("T003", "uses: [T002]\nlinks: [D003]\n", "- 2000-01-02 13:00 UTC — Created."),
+    ] {
+        std::fs::write(
+            p.path().join(format!("plied/threads/{id}.md")),
+            format!("---\nid: {id}\ntitle: node\nstatus: open\n{extra}---\n{history}\n"),
+        ).unwrap();
+    }
+    for (id, date, title, body) in [
+        ("D001", "date: 2000-01-01\ntime: '12:31'\n", "old", "T001"),
+        ("D002", "date: 2000-01-02\ntime: '12:30'\n", "same minute", "T001"),
+        ("D003", "date: 2999-01-01\n", "already linked", "T001 T002"),
+        ("D004", "date: 2999-01-01\n", "boundaries", "xT001 T001_suffix _T002 T002x"),
+        ("D005", "date: 2000-01-02\ntime: '12:31'\n", "T002 changes", "No ids in the body."),
+        ("D006", "", "undated", "T001"),
+    ] {
+        std::fs::write(
+            p.path().join(format!("log/{id}.md")),
+            format!("---\nid: {id}\ntitle: {title}\n{date}---\n{body}\n"),
+        ).unwrap();
+    }
+    let stale = || {
+        let v = envelope(&p.run(&["check", "--json"]));
+        v["result"]["diagnostics"].as_array().unwrap().iter().filter(|d| d["code"] == "stale").cloned().collect::<Vec<_>>()
+    };
+    let got = stale();
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["where"], "plied/threads/T001.md");
+    assert_eq!(got[0]["message"], "records newer than this node's last history line cite its links, not the node: D005 (cites T002)");
+    let v = envelope(&p.run(&["check", "--errors-only", "--json"]));
+    assert_eq!(v["result"]["warnings"], 0);
+    p.edit("log/D005.md", "T002 changes", "No longer relevant");
+    assert!(stale().is_empty(), "each check must scan the current text");
+}
+

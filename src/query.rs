@@ -4,6 +4,9 @@
 //! must hold. Operators: `$eq $ne $in $nin $gt $gte $lt $lte $regex` (with
 //! `$options: "i"`) `$exists $contains $size $not`; top level `$and`/`$or`.
 
+use std::collections::{HashMap, hash_map::Entry};
+
+use regex::Regex;
 use serde_json::Value;
 
 use crate::error::{Fail, Res};
@@ -12,33 +15,21 @@ fn qerr(msg: impl Into<String>) -> Fail {
     Fail::query(msg)
 }
 
-thread_local! {
-    /// `$regex` patterns compiled once per query, not once per record examined.
-    static REGEX_CACHE: std::cell::RefCell<std::collections::HashMap<String, Option<std::rc::Rc<regex::Regex>>>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
+/// Reuse compiled regexes while testing one query against multiple records. Compilation remains
+/// lazy: clauses skipped by an earlier condition must not introduce query errors.
+pub struct Matcher<'q> {
+    query: &'q Value,
+    regexes: HashMap<String, Regex>,
 }
 
-fn compiled_regex(pat: &str) -> Result<std::rc::Rc<regex::Regex>, String> {
-    REGEX_CACHE.with_borrow_mut(|c| {
-        if c.len() > 128 {
-            c.clear();
-        }
-        match c.get(pat) {
-            Some(Some(re)) => Ok(re.clone()),
-            Some(None) => Err(format!("invalid regex {pat:?}")),
-            None => match regex::Regex::new(pat) {
-                Ok(re) => {
-                    let re = std::rc::Rc::new(re);
-                    c.insert(pat.to_string(), Some(re.clone()));
-                    Ok(re)
-                }
-                Err(e) => {
-                    c.insert(pat.to_string(), None);
-                    Err(e.to_string())
-                }
-            },
-        }
-    })
+impl<'q> Matcher<'q> {
+    pub fn new(query: &'q Value) -> Self {
+        Self { query, regexes: HashMap::new() }
+    }
+
+    pub fn matches(&mut self, doc: &Value) -> Res<bool> {
+        matches_cached(doc, self.query, &mut self.regexes)
+    }
 }
 
 fn get<'a>(doc: &'a Value, key: &str) -> Option<&'a Value> {
@@ -104,7 +95,7 @@ fn cmp(v: &Value, x: &Value, op: &str) -> bool {
     }
 }
 
-fn match_value(v: Option<&Value>, cond: &Value) -> Res<bool> {
+fn match_value(v: Option<&Value>, cond: &Value, regexes: &mut HashMap<String, Regex>) -> Res<bool> {
     let is_ops = cond.as_object().is_some_and(|o| !o.is_empty() && o.keys().all(|k| k.starts_with('$')));
     if !is_ops {
         return Ok(v.is_some_and(|v| eq(v, cond)));
@@ -143,7 +134,13 @@ fn match_value(v: Option<&Value>, cond: &Value) -> Res<bool> {
                 let case_i = ops.get("$options").and_then(Value::as_str).is_some_and(|o| o.contains('i'));
                 let pat = text_of(arg);
                 let pat = if case_i { format!("(?i){pat}") } else { pat };
-                let re = compiled_regex(&pat).map_err(|e| qerr(format!("$regex {arg}: {e}")))?;
+                let re = match regexes.entry(pat) {
+                    Entry::Occupied(e) => e.into_mut(),
+                    Entry::Vacant(e) => {
+                        let re = Regex::new(e.key()).map_err(|e| qerr(format!("$regex {arg}: {e}")))?;
+                        e.insert(re)
+                    }
+                };
                 let hit = match v {
                     Some(Value::Array(items)) => items.iter().any(|x| re.is_match(&text_of(x))),
                     Some(v) => re.is_match(&text_of(v)),
@@ -172,7 +169,7 @@ fn match_value(v: Option<&Value>, cond: &Value) -> Res<bool> {
                 }
             }
             "$not" => {
-                if match_value(v, arg)? {
+                if match_value(v, arg, regexes)? {
                     return Ok(false);
                 }
             }
@@ -187,6 +184,10 @@ fn truthy_arg(v: &Value) -> bool {
 }
 
 pub fn matches(doc: &Value, q: &Value) -> Res<bool> {
+    Matcher::new(q).matches(doc)
+}
+
+fn matches_cached(doc: &Value, q: &Value, regexes: &mut HashMap<String, Regex>) -> Res<bool> {
     let Some(obj) = q.as_object() else { return Err(qerr("a query is a JSON object")) };
     for (k, cond) in obj {
         match k.as_str() {
@@ -194,7 +195,7 @@ pub fn matches(doc: &Value, q: &Value) -> Res<bool> {
                 let Some(list) = cond.as_array() else { return Err(qerr(format!("{k} takes a list of queries"))) };
                 let mut results = Vec::new();
                 for sub in list {
-                    results.push(matches(doc, sub)?);
+                    results.push(matches_cached(doc, sub, regexes)?);
                 }
                 let ok = if k == "$and" { results.iter().all(|r| *r) } else { results.iter().any(|r| *r) };
                 if !ok {
@@ -203,7 +204,7 @@ pub fn matches(doc: &Value, q: &Value) -> Res<bool> {
             }
             _ if k.starts_with('$') => return Err(qerr(format!("unknown top-level operator {k}"))),
             _ => {
-                if !match_value(get(doc, k), cond)? {
+                if !match_value(get(doc, k), cond, regexes)? {
                     return Ok(false);
                 }
             }
@@ -211,4 +212,3 @@ pub fn matches(doc: &Value, q: &Value) -> Res<bool> {
     }
     Ok(true)
 }
-

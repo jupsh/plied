@@ -1422,13 +1422,14 @@ fn cmd_list(ctx: &Ctx, kind: Option<&str>, state: Option<&str>, json: bool) -> R
 
 fn cmd_find(ctx: &Ctx, q_text: &str, json: bool) -> Res<i32> {
     let q: Value = serde_json::from_str(q_text).map_err(|e| Fail::code(EXIT_USAGE, format!("query is not JSON: {e}")))?;
+    let mut matcher = query::Matcher::new(&q);
     let st = ctx.store()?;
     let mut sorted: Vec<&Record> = st.records.iter().collect();
     sorted.sort_by(|a, b| (!a.is_own()).cmp(&!b.is_own()).then(a.id.cmp(&b.id)));
     let mut hits = vec![];
     for r in sorted {
         let docv = Value::Object(r.to_json(&ctx.repo.cfg.base));
-        if query::matches(&docv, &q)? {
+        if matcher.matches(&docv)? {
             hits.push(r);
         }
     }
@@ -1626,8 +1627,8 @@ fn cmd_check(ctx: &Ctx, errors_only: bool, baseline_path: Option<&Path>, group_s
             None
         }
     };
-    let view = views::render_view(&st);
-    let inputs = check::Inputs { library: lib.as_ref(), messages: Some(&msgs), view: Some(&view), warnings: !errors_only };
+    let view = (!errors_only).then(|| views::render_view(&st));
+    let inputs = check::Inputs { library: lib.as_ref(), messages: Some(&msgs), view: view.as_deref(), warnings: !errors_only };
     let mut probs = extra;
     probs.extend(check::run(&st, &inputs));
     let errs = probs.iter().filter(|p| p.level == Level::Error).count();

@@ -6,6 +6,21 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+## 0.14.1 — 2026-11-02
+
+The record format and JSON envelope remain at version 1. Diagnostic
+identities, freshness causes, commitment chains and gates are unchanged.
+
+- Reuse linked-record dates and full-text mentions within each loaded store
+  to speed up `check`, grouped stale reports and freshness views. A new load,
+  including a proposed write or changed access policy, starts fresh.
+- Skip body-mention warnings during write validation and `check --errors-only`,
+  and skip generated-view rendering for `--errors-only`.
+- Keep `find` regex reuse local to its query, preserving case options and
+  lazy error reporting without a process-wide cache limit. Add repeatable
+  performance benchmarks and fixtures covering freshness, regex errors and
+  the existing shared commitment walks used by `review`, `show` and `claim`.
+
 ## 0.14.0 — 2026-11-02
 
 The record format and JSON envelope remain at version 1. `context.other_claims`
