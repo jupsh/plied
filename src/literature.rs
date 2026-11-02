@@ -340,7 +340,7 @@ impl<'a> Library<'a> {
             (true, false) => check(Aspect::Quote, Status::Ok, "found on the page"),
             (false, true) => check(Aspect::Quote, Status::Warn, "not found in OCR'd text: verify against the page image"),
             (false, false) => {
-                let near = textmatch::closest(quote, &text, 60).map(|n| format!("; nearest: “{n}…”")).unwrap_or_default();
+                let near = textmatch::mismatch_hint(quote, &text);
                 check(Aspect::Quote, Status::Fail, format!("not found on the page{near}"))
             }
         }

@@ -112,6 +112,29 @@ fn blockquoted_quotations_match_across_lines_without_eliding_words() {
     p.ok(&["new", "commitment", "--title", "Comparison", "made=D001", "wording=A comparison is x > y."]);
 }
 
+#[test]
+fn a_wrapped_comparison_reports_the_normalised_divergence_and_marker() {
+    let p = Proj::new();
+    p.with_evidence();
+    let wording = "the first rule applies to every run, and the second applies only if > 5 % of visits end early.";
+    p.evidence("D001", "", &format!("- Rules: {wording}"));
+    p.ok(&["new", "commitment", "--title", "Comparison", "made=D001", &format!("wording={wording}")]);
+    p.edit("evidence/D001.md", "if > 5", "if\n  > 5");
+    let checked = p.run(&["check", "--json"]);
+    assert_eq!(checked.status.code(), Some(1));
+    let report = envelope(&checked);
+    let d = report["result"]["diagnostics"].as_array().unwrap().iter().find(|d| d["code"] == "quote").unwrap();
+    assert_eq!(d["subject"], "wording");
+    let message = d["message"].as_str().unwrap();
+    assert!(message.contains("applies only if 5 % of visits"), "{message}");
+    assert!(message.contains("line-leading `>`"), "{message}");
+    let refused = p.run(&["new", "commitment", "--title", "Still a comparison", "made=D001", &format!("wording={wording}")]);
+    assert_eq!(refused.status.code(), Some(4));
+    assert!(text(&refused).contains("line-leading `>`"));
+    p.edit("evidence/D001.md", "if\n  > 5", "if > 5");
+    assert_eq!(p.code(&["check"]), Some(0));
+}
+
 // ------------------------------------------------------------------- §3.7 optional synopsis
 
 #[test]

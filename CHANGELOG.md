@@ -13,6 +13,12 @@ are versioned separately from plied itself; see
   and acknowledgement redesign remains separate work.
   ([#112](https://github.com/jupsh/plied/issues/112))
 
+- Show quotation mismatch context around the first divergence, including after
+  ellipses, and explain when removing a line-leading blockquote marker caused
+  the mismatch. Document that wrapped comparisons can stop matching after
+  upgrading to 0.13.0. Matching rules and diagnostic identities are unchanged.
+  ([#111](https://github.com/jupsh/plied/issues/111))
+
 ## 0.13.0 — 2026-10-30
 
 The record format and JSON envelope remain at version 1. Stores relying on
