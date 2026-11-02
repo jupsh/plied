@@ -508,8 +508,8 @@ a wrapped comparison beginning with `>` after zero to three spaces now loses
 that sign, so an existing quotation can stop matching after upgrading. Keep
 comparison signs inline when rewrapping the source.
 
-On a mismatch, diagnostics show bounded normalised source text around the first
-divergence of the first unmatched quotation part, when a shared prefix can be
+Since 0.14.0, mismatch diagnostics show bounded normalised source text around
+the first divergence of the first unmatched quotation part, when a shared prefix can be
 found. Earlier matched ellipsis parts are skipped. If retaining the source's
 blockquote markers would make the quotation match, the diagnostic explains
 that a line-leading `>` was treated as a marker. These hints change neither
@@ -655,8 +655,8 @@ agent. An acknowledgement records receipt, never approval or completion.
 The sender's agent is excluded across all sessions, even with `--to` naming
 that agent. Claims distinguish sessions but do not create separate inboxes:
 concurrent workers needing independent inboxes use distinct agent names,
-including on their claims. When `claim` sees another session of the same
-agent, or a sent message's recorded `present` includes one, the command adds
+including on their claims. Since 0.14.0, when `claim` sees another session of
+the same agent, or a sent message's recorded `present` includes one, the command adds
 an advisory note explaining this limitation and the distinct-agent setup.
 The note is in envelope `notes` under `--json`. An empty recipient set is
 reported without implying there were no live claims. Delivery, read and
@@ -991,8 +991,8 @@ integer when it is all digits, and as text otherwise. List fields (§3.3) given
 a single value hold a one-item list. `id` can never be assigned. Each write
 appends one history line (§3.5) that says what changed, followed by `--why`.
 
-**Claim awareness.** Successful record writes add advisory `notes` (stderr in
-human output) for other live `(agent, session)` claims on the changed record or
+**Claim awareness (since 0.14.0).** Successful record writes add advisory
+`notes` (stderr in human output) for other live `(agent, session)` claims on the changed record or
 on a commitment's directly attached records (§12, `nodes` and reverse `links`).
 Attachments before and after the write both count, including when detached or
 created. Each note names the claimed node, agent, session and lease end, and
@@ -1339,8 +1339,8 @@ and caches require runtime writes even without authority to edit tracked
 records; actual mutations retain their precise filesystem failures. Filesystem
 permission confers no project authority.
 
-`other_claims` lists live claims across readable records, excluding only the
-effective `(agent, session)` pair. Each is a claim (§6) plus `expires` as in
+`other_claims` (added in 0.14.0) lists live claims across readable records,
+excluding only the effective `(agent, session)` pair. Each is a claim (§6) plus `expires` as in
 `who`, sorted by node, agent and session (null before text). It is empty without
 configuration. Missing or sealed records, expired claims and the caller's own
 claim are omitted. A claim is an estimate of presence, not proof of life, and
