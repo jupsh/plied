@@ -12,8 +12,6 @@ use std::sync::LazyLock;
 use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::doc::take;
-
 static ELLIPSIS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*(?:…|\.\.\.)\s*").unwrap());
 static BLOCKQUOTE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^ {0,3}(?:>[ \t]?)+").unwrap());
 static HYPHEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\w)-\n\s*(\w)").unwrap());
@@ -31,8 +29,12 @@ fn nfkc_quotes(text: &str) -> String {
 }
 
 pub fn normalise(text: &str) -> String {
+    normalise_with_blockquotes(text, true)
+}
+
+fn normalise_with_blockquotes(text: &str, strip: bool) -> String {
     let t = nfkc_quotes(text).replace(['*', '`'], "");
-    let t = BLOCKQUOTE.replace_all(&t, "");
+    let t = if strip { BLOCKQUOTE.replace_all(&t, "") } else { t.into() };
     let t = HYPHEN.replace_all(&t, "${1}${2}"); // hyphenated line breaks in page text
     SPACES.replace_all(&t, " ").trim().to_string()
 }
@@ -59,25 +61,96 @@ pub fn find_quote(quote: &str, source: &str) -> bool {
     true
 }
 
-/// The source passage sharing the longest prefix with the quote's first part (for error messages).
+/// A bounded passage around the first divergence in the first unmatched quote part.
+/// Earlier ellipsis-separated parts are consumed just as in `find_quote`.
 pub fn closest(quote: &str, source: &str, width: usize) -> Option<String> {
-    let parts = quote_parts(quote);
-    let first = parts.first()?;
     let src = normalise(source);
-    let n0 = first.chars().count().min(40);
-    for n in (5..=n0).rev() {
-        if let Some(i) = src.find(take(first, n)) {
-            let start = src[..i].chars().count();
-            let len = width.max(n + 20);
-            return Some(src.chars().skip(start).take(len).collect());
+    let mut pos = 0;
+    for part in quote_parts(quote) {
+        if let Some(i) = src[pos..].find(&part) {
+            pos += i + part.len();
+            continue;
         }
+        let chars: Vec<char> = part.chars().collect();
+        for n in (5..=chars.len().min(40)).rev() {
+            let prefix: String = chars[..n].iter().collect();
+            let mut best = None;
+            for (i, _) in src[pos..].match_indices(&prefix) {
+                let shared = src[pos + i..].chars().zip(&chars).take_while(|(a, b)| a == *b).count();
+                if best.is_none_or(|(_, longest)| shared > longest) {
+                    best = Some((pos + i, shared));
+                }
+            }
+            if let Some((i, shared)) = best {
+                let start = src[..i].chars().count();
+                let divergence = start + shared;
+                let offset = divergence.saturating_sub(width / 2).max(start);
+                let excerpt: String = src.chars().skip(offset).take(width).collect();
+                let before = if offset > 0 { "…" } else { "" };
+                let after = if offset + excerpt.chars().count() < src.chars().count() { "…" } else { "" };
+                return Some(format!("{before}{excerpt}{after}"));
+            }
+        }
+        return None;
     }
     None
+}
+
+/// Explain blockquote removal only when retaining the source's markers would make the quote match.
+pub fn blockquote_mismatch(quote: &str, source: &str) -> bool {
+    let src = normalise_with_blockquotes(source, false);
+    let mut pos = 0;
+    let parts = quote_parts(quote);
+    if parts.is_empty() || find_quote(quote, source) {
+        return false;
+    }
+    for part in parts {
+        let Some(i) = src[pos..].find(&part) else { return false };
+        pos += i + part.len();
+    }
+    true
+}
+
+/// Human-readable mismatch context, shared by record and literature diagnostics.
+pub fn mismatch_hint(quote: &str, source: &str) -> String {
+    let near = closest(quote, source, 60).map(|n| format!("; nearest normalised text: “{n}”")).unwrap_or_default();
+    let marker = if blockquote_mismatch(quote, source) {
+        "; a line-leading `>` in the source was treated as a blockquote marker; rewrap a comparison so `>` stays inline"
+    } else {
+        ""
+    };
+    format!("{near}{marker}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mismatch_context_reaches_the_divergence_including_later_parts() {
+        let shared = "the first rule applies to every run, and the second applies only if ";
+        let quote = format!("{shared}> 5 % of visits end early.");
+        let source = format!("- Rules: {shared}\n  > 5 % of visits end early.");
+        let near = closest(&quote, &source, 60).unwrap();
+        assert!(near.contains("applies only if 5 % of visits"), "{near}");
+        assert!(blockquote_mismatch(&quote, &source));
+        let later = closest(&format!("Rules … {quote}"), &source, 60).unwrap();
+        assert_eq!(near, later);
+        assert!(!blockquote_mismatch("Rules … an unrelated mistake", &source));
+        assert!(closest("Rules … an unrelated mistake", &source, 60).is_none());
+        assert!(closest("Rules", &source, 60).is_none());
+    }
+
+    #[test]
+    fn mismatch_context_uses_the_longest_candidate_and_unicode_boundaries() {
+        let first = "évidence has a repeated and sufficiently long introduction, then ";
+        let quote = format!("{first}a mistaken conclusion.");
+        let source = format!("évidence has a repeated and wrong start. {first}the actual conclusion.");
+        let near = closest(&quote, &source, 60).unwrap();
+        assert!(near.contains("then the actual conclusion"), "{near}");
+        assert!(near.chars().count() <= 62);
+        assert!(!blockquote_mismatch(&quote, &source));
+    }
 
     const SRC: &str = "- **2026-10-24 — The revised initialization \"is accepted as a warm-up shortcut** provided the\n  original and revised starts converge to the same late-window behaviour, rechecked if walk-on\n  rates change.\" `C2` was selected provisionally.";
 
