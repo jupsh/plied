@@ -73,6 +73,16 @@ impl<'a> Writer<'a> {
         library: Option<&Library>,
         build: &mut dyn FnMut(&Store) -> Res<Vec<Change>>,
     ) -> Res<Vec<(String, String)>> {
+        self.transaction_as(policy, library, None, build)
+    }
+
+    fn transaction_as(
+        &self,
+        policy: &Policy,
+        library: Option<&Library>,
+        who: Option<&Who>,
+        build: &mut dyn FnMut(&Store) -> Res<Vec<Change>>,
+    ) -> Res<Vec<(String, String)>> {
         let cfg = &self.repo.cfg;
         let _g = self.lock.lock()?;
         self.refuse_blocked()?;
@@ -140,11 +150,36 @@ impl<'a> Writer<'a> {
         self.check_destination(policy, &cfg.view_path(), true)?;
         files.extend(self.view_file(&proposed));
         fsx::commit_files(&self.repo.runtime, &files)?;
+        if let Some(who) = who {
+            self.note_overlapping_claims(policy, &store, &proposed, &changes, who);
+        }
         // the write is done: failing to prune the cache is worth a note, never a failure
         if let Err(e) = fsx::prune_revisions_daily(&self.repo.runtime, cfg.revision_days) {
             crate::notes::note(format!("could not prune the revision cache: {}", e.msg));
         }
         Ok(changes.iter().map(|c| (c.rid.clone(), fsx::sha(&c.data))).collect())
+    }
+
+    /// Advisory presence only: direct attachments before and after a write both count.
+    fn note_overlapping_claims(&self, policy: &Policy, before: &Store, after: &Store, changes: &[Change], who: &Who) {
+        let mut nodes: std::collections::HashSet<String> = changes.iter().map(|c| c.rid.clone()).collect();
+        for store in [before, after] {
+            let attached = crate::review::attachments(store);
+            for change in changes {
+                if let Some(ids) = attached.get(&change.rid) {
+                    nodes.extend(ids.iter().cloned());
+                }
+            }
+        }
+        let msgs = crate::messages::Messages::new(&self.repo.cfg, policy, &self.repo.runtime, self.lock);
+        let mut shared_agent = false;
+        for claim in msgs.visible_claims(after).iter().filter(|c| nodes.contains(&c.node) && !c.held_by(&who.agent, who.session.as_deref())) {
+            crate::notes::note(format!("this write overlaps another live claim: {}", claim.awareness()));
+            shared_agent |= claim.agent == who.agent;
+        }
+        if shared_agent {
+            crate::notes::note(crate::messages::shared_agent_note(&who.agent));
+        }
     }
 
     /// Check both the alias policy and resolved destination before reading or committing bytes.
@@ -272,7 +307,7 @@ impl<'a> Writer<'a> {
             let data = records::render(kind, &m, &text).into_bytes();
             Ok(vec![Change { path, data, expected: "absent".into(), rid }])
         };
-        let out = self.transaction(policy, library, &mut build)?;
+        let out = self.transaction_as(policy, library, Some(who), &mut build)?;
         out.into_iter().next().ok_or_else(|| Fail::new("nothing written"))
     }
 
@@ -327,7 +362,7 @@ impl<'a> Writer<'a> {
             let data = records::render(kind, &meta, &body).into_bytes();
             Ok(vec![Change { path: r.path.clone(), data, expected: expected.to_string(), rid: r.id.clone() }])
         };
-        let out = self.transaction(policy, library, &mut build)?;
+        let out = self.transaction_as(policy, library, Some(who), &mut build)?;
         out.into_iter().next().map(|(_, rev)| rev).ok_or_else(|| Fail::new("nothing written"))
     }
 }

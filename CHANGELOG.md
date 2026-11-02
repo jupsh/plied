@@ -6,6 +6,13 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Surface other readable live claims in `context` and the Claude session-start
+  hook. Successful record writes note overlapping claims on the record or a
+  commitment's directly attached nodes, including attachments before a change.
+  Notes name the session and lease, explain same-agent messaging, and never
+  lock a record or change revision checks or gates. Activity without a claim
+  is not tracked. ([#113](https://github.com/jupsh/plied/issues/113))
+
 - Explain that messaging excludes the sending agent in every session. `claim`
   and `send` note when another session shares that name, and the skill explains
   how distinct agent names give concurrent workers separate inboxes. An empty

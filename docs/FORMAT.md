@@ -991,6 +991,18 @@ integer when it is all digits, and as text otherwise. List fields (§3.3) given
 a single value hold a one-item list. `id` can never be assigned. Each write
 appends one history line (§3.5) that says what changed, followed by `--why`.
 
+**Claim awareness.** Successful record writes add advisory `notes` (stderr in
+human output) for other live `(agent, session)` claims on the changed record or
+on a commitment's directly attached records (§12, `nodes` and reverse `links`).
+Attachments before and after the write both count, including when detached or
+created. Each note names the claimed node, agent, session and lease end, and
+suggests reading `messages` and coordinating before overlapping. Only claims
+on readable records are shown; expired claims and the writer's own pair are
+omitted. No dependency, ancestor or project-wide applicability is followed for
+these notes. Same-agent overlap additionally explains agent-scoped messaging
+(§5). Claims never refuse a write, change a diagnostic or gate, or replace
+`--expect`. View-only regeneration is not a record write.
+
 **Other writes.** `plied note` adds only a history line.
 
 `note` and `set` take a repeatable `--reviewed ID@REV`: a linked record the
@@ -1303,7 +1315,7 @@ per-record revision requirements above.
 
 `context [NODE]` returns `{version, configured, canonical, here, runtime,
 runtime_access, configuration, branch, canonical_branch, write_blockers, identity,
-session_seen, vocabularies, linked_sources, capabilities, node}`.
+session_seen, other_claims, vocabularies, linked_sources, capabilities, node}`.
 `session_seen` (added in 0.12.0) is the effective session's baseline
 `{version, requires, at}` (§11, *Session baseline*), or null. Context never
 records it, but adds the note when the current version or `requires`
@@ -1326,6 +1338,16 @@ not a promise of writable storage. Claims, messages, releases, record writes
 and caches require runtime writes even without authority to edit tracked
 records; actual mutations retain their precise filesystem failures. Filesystem
 permission confers no project authority.
+
+`other_claims` lists live claims across readable records, excluding only the
+effective `(agent, session)` pair. Each is a claim (§6) plus `expires` as in
+`who`, sorted by node, agent and session (null before text). It is empty without
+configuration. Missing or sealed records, expired claims and the caller's own
+claim are omitted. A claim is an estimate of presence, not proof of life, and
+only covers participants who claim through plied. Context does not record
+activity or renew claims. On `SessionStart`, the Claude hook reports the same
+readable live claims except those in the hook's session (whose agent need not
+be known); other hook events do not repeat this overview.
 
 For a readable named record, `node` is `{id, show_args, messages_args,
 claims, commitments}`; otherwise it is null. A named missing or sealed
