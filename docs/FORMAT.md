@@ -503,7 +503,17 @@ whitespace. A quotation with no parts never matches. Matching is
 case-sensitive.
 
 Stores relying on blockquote prefix removal should set `requires = ">=0.13.0"`:
-earlier versions can reject quotations that match under this rule.
+earlier versions can reject quotations that match under this rule. Conversely,
+a wrapped comparison beginning with `>` after zero to three spaces now loses
+that sign, so an existing quotation can stop matching after upgrading. Keep
+comparison signs inline when rewrapping the source.
+
+On a mismatch, diagnostics show bounded normalised source text around the first
+divergence of the first unmatched quotation part, when a shared prefix can be
+found. Earlier matched ellipsis parts are skipped. If retaining the source's
+blockquote markers would make the quotation match, the diagnostic explains
+that a line-leading `>` was treated as a marker. These hints change neither
+matching nor diagnostic identity (§8).
 
 ### 3.7 Optional thread body summary
 

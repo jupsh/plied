@@ -257,7 +257,7 @@ fn quote(store: &Store, at: &str, p: &mut Report, quote: Option<&Node>, source: 
         match crate::summary::section(&t.body, heading) {
             Ok(section) => {
                 if !textmatch::find_quote(&q, &section) {
-                    p.err("quote", at, what, format!("{what} is not verbatim in the section “{heading}” of {source}; the locator narrows the match to that section"));
+                    p.err("quote", at, what, format!("{what} is not verbatim in the section “{heading}” of {source}{}; the locator narrows the match to that section", textmatch::mismatch_hint(&q, &section)));
                 }
             }
             Err(crate::summary::NoSection::Missing) => {
@@ -270,7 +270,7 @@ fn quote(store: &Store, at: &str, p: &mut Report, quote: Option<&Node>, source: 
         return;
     }
     if !textmatch::find_quote(&q, &t.text) {
-        let near = textmatch::closest(&q, &t.text, 60).map(|n| format!(" (nearest: “{n}…”)")).unwrap_or_default();
+        let near = textmatch::mismatch_hint(&q, &t.text);
         p.err("quote", at, what, format!("{what} is not verbatim in {source}{near}; quote the record exactly, or record the wording first"));
     }
 }
