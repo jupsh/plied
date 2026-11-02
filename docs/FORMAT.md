@@ -712,6 +712,11 @@ record's state.)
 `plied check` reports diagnostics. Errors fail it, and a write may not add
 one. Warnings change nothing.
 
+`--errors-only` reports errors without warnings. Implementations may skip
+warning-only work, including body-mention scans and view rendering. Linked
+dates and full-text mentions may be reused within a loaded store snapshot;
+they still use the record text and access policy of that load.
+
 **Identity.** A diagnostic has a level, a code, a location, a subject and a
 message. Its **identity** is (level, code, location, subject). The message is
 free text and is never part of the identity. A location is one of:
@@ -1302,7 +1307,12 @@ values, a list field containing it, and a number equal to a string of digits.
 Operators: `$eq $ne $in $nin $gt $gte $lt $lte $regex` (with `$options: "i"`)
 `$exists $contains $size $not`, and at the top level `$and` and `$or` taking
 lists. `$gt` and friends compare numbers as numbers and anything else as text.
-A malformed query exits 2.
+Malformed JSON exits 2. Conditions are evaluated in JSON member order for
+each record; a failed condition skips later members. A malformed condition
+exits 2 when reached, including an invalid `$regex` on a missing field.
+With no records, no conditions are evaluated. When reached, `$and` and `$or`
+evaluate all their child queries before combining the results. Compiled
+regexes may be reused across records, with their case options preserved.
 
 ### 11.2 Read-only discovery
 
@@ -1410,6 +1420,14 @@ holds:
 Nothing else carries an obligation. `parent` alone does not (rule 3 needs
 `subtree`). Ancestors of dependencies are not followed. `carries`, `backlog`
 and `cites` never make a commitment apply.
+
+Dependency walks use breadth-first order, inspecting `waiting_on` before
+`uses` and preserving each list's order; the first shortest path to a record
+is retained. Dependency and ancestor walks stop revisiting records, so
+cycles terminate. Within each commitment, chains are deduplicated and sorted
+by Unicode character count, then lexicographically to break ties.
+Commitments are listed by id. `show` and `claim` use the same chains.
+Traversals may be reused across commitments within an invocation.
 
 **Governed actions.** A commitment with `governs` governs only actions of
 the kinds it lists. It still applies, and `review` still lists it, marked as

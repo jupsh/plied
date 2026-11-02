@@ -1,6 +1,6 @@
 //! Records: plied's own (threads, commitments, questions) and those of linked sources (FORMAT.md §3, §4).
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -473,6 +473,8 @@ pub struct Store {
     /// kinds and sources with files the access policy kept unread
     sealed_kinds: HashSet<String>,
     token: OnceCell<fancy_regex::Regex>,
+    dated: OnceCell<Vec<(DateTime<Utc>, usize)>>,
+    full_mentions: RefCell<HashMap<String, Rc<HashSet<String>>>>,
 }
 
 impl Store {
@@ -488,6 +490,8 @@ impl Store {
             empty_sources: vec![],
             sealed_kinds: HashSet::new(),
             token: OnceCell::new(),
+            dated: OnceCell::new(),
+            full_mentions: RefCell::new(HashMap::new()),
         };
         let ov: Overrides = overrides.map(|o| o.iter().map(|(p, v)| (fsx::resolve(p), v.clone())).collect()).unwrap_or_default();
         for kind in OwnKind::KINDS {
@@ -642,6 +646,25 @@ impl Store {
             let alt = pats.iter().map(|p| format!("(?:{p})")).collect::<Vec<_>>().join("|");
             fancy_regex::Regex::new(&format!(r"(?<!\w)(?:{alt})(?!\w)")).unwrap_or_else(|_| fancy_regex::Regex::new(r"(?!)").unwrap())
         })
+    }
+
+    /// Dated linked records from this loaded store. Dates are parsed once across freshness checks.
+    pub fn dated_linked(&self) -> impl Iterator<Item = (DateTime<Utc>, &Record)> {
+        self.dated.get_or_init(|| self.records.iter().enumerate()
+            .filter(|(_, r)| !r.is_own())
+            .filter_map(|(i, r)| r.when().map(|when| (when, i))).collect())
+            .iter().map(|(when, i)| (*when, &self.records[*i]))
+    }
+
+    /// Mentions in a loaded record's full text, reused by revision within this store snapshot.
+    /// New loads, including proposed writes and changed access policies, start with empty caches.
+    pub fn record_mentions(&self, record: &Record) -> Rc<HashSet<String>> {
+        if let Some(mentions) = self.full_mentions.borrow().get(&record.rev) {
+            return Rc::clone(mentions);
+        }
+        let mentions = Rc::new(self.mentions(&record.text));
+        self.full_mentions.borrow_mut().insert(record.rev.clone(), Rc::clone(&mentions));
+        mentions
     }
 
     /// Every id mentioned in `text`.

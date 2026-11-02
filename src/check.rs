@@ -123,7 +123,9 @@ pub fn run(store: &Store, inputs: &Inputs) -> Vec<Problem> {
             _ => question(store, r, &at, &mut p),
         }
         cites(r, &at, inputs.library, &mut p);
-        body_mentions(store, r, &at, &mut p);
+        if inputs.warnings {
+            body_mentions(store, r, &at, &mut p);
+        }
     }
     cycles(store, OwnKind::Thread, "waiting_on", &mut p);
     cycles(store, OwnKind::Thread, "parent", &mut p);
@@ -816,8 +818,8 @@ pub fn freshness(store: &Store, n: &Record) -> Vec<StaleCause> {
     let reviewed = n.scoped_reviews();
     let covered = |r: &Record| reviewed.iter().any(|(id, rev)| *id == r.id && r.rev.starts_with(rev.as_str()));
     let mut causes = vec![];
-    for r in store.linked().filter(|r| r.id != n.id && !referenced.contains(r.id.as_str()) && r.when().is_some_and(|d| d > last) && !covered(r)) {
-        let mentioned = store.mentions(&r.text);
+    for (_, r) in store.dated_linked().filter(|(when, r)| r.id != n.id && !referenced.contains(r.id.as_str()) && *when > last && !covered(r)) {
+        let mentioned = store.record_mentions(r);
         let named = mentioned.contains(&n.id);
         let mut via: Vec<_> = watched.iter().filter(|(_, id)| mentioned.contains(id)).map(|(field, id)| StaleLink { field: (*field).into(), id: id.clone() }).collect();
         if !named && via.is_empty() {
