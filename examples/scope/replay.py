@@ -2,7 +2,7 @@
 """Exercise scope-aware records, not an agent's ability to judge scope.
 
 All decisions are authored fixtures. No model calls or network requests occur.
-Requires git, Python 3 and the Plied binary built from this checkout.
+Requires git, Python 3.8+ and Plied 0.10.0 or later on PATH (or --plied PATH).
 """
 import argparse
 import json
@@ -141,7 +141,8 @@ the project actually adopts it as an obligation.""")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--plied", default="plied")
+    parser.add_argument("--plied", default="plied",
+                        help="Plied executable name or path (default: plied on PATH)")
     parser.add_argument("--output", type=Path)
     opts = parser.parse_args()
     binary = shutil.which(opts.plied)

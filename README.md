@@ -332,6 +332,13 @@ cites:
     image_checked: true  # …and say so
 ```
 
+`paper` is a manifest id, which resolves to a local file and an optional
+SHA-256 of the PDF. It is not a URL or an `(address, sha256, read time)`
+capture. A citation's optional `note` is prose: a URL or read time written
+there is not validated. Plied does not fetch web sources or record when a
+source was read, and `lit check` reports current results without saving a
+read receipt.
+
 `plied lit check` reports five results for every citation, separately:
 clearance, source hash, page existence, quotation and the image-check claim.
 The image result records the writer's claim; plied does not inspect the image.
@@ -342,6 +349,12 @@ page. Matches on OCR'd pages
 are warnings to verify against the image. Other commands: `plied lit search`,
 `plied lit page Smith2020 4 [--image]`, and `plied lit cites Smith2020`, which
 finds citations and author–year mentions such as "Smith et al. (2020)".
+
+Exit 0 means none of those results failed; an absent PDF hash is still
+`unchecked`. The PDF hash does not authenticate the page-text cache. For a
+changing web source, preserve the retrieved bytes and record the source
+address, their SHA-256 and the read time in a linked evidence record. That
+provenance is supplied by the recorder; Plied does not capture or verify it.
 
 ### Search, with access rules
 

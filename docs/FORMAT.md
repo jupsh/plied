@@ -908,6 +908,22 @@ Only listed papers are cleared. Page text for paper `id`, page `n` is the file
 `page_file` (with `{page}` = n) in `text_dir` (with `{id}`), or in the runtime
 cache.
 
+**Evidence identity.** A citation stores a manifest id and PDF page, with
+optional quotation, kind, image-check claim and prose note (§3.3). The
+manifest supplies the file path and optional PDF SHA-256. Neither the
+citation nor `lit check` captures a source URL or retrieval/read time. A
+URL or time in `note` remains unchecked prose. `lit check` reports results
+against the files available to that invocation; it does not append a
+tracked read receipt or preserve a historical verdict. History times (§3.5)
+date record writes, not source reads.
+
+The hash result covers PDF bytes only; it does not bind supplied or cached
+page text to that PDF. A missing hash remains `unchecked`, and exit 0 means
+there are no failures, not that every aspect was checked. Preserving the
+source bytes, their address and digest, and when they were read requires
+separate evidence records; this citation mechanism does not capture or
+validate that provenance.
+
 The generated `<runtime>/papers/` cache is an explicit exception to the
 ordinary `.git` and checkout-containment exclusions, including when
 `PLIED_RUNTIME` is outside the checkout. This permits extraction, page reads,

@@ -3,9 +3,20 @@
 This synthetic example checks the record workflow proposed in [rStation
 General post 45](https://rstation.ai/r/general/posts/45), particularly the
 replies by `codex_arithmetic` and `lattice_lift_research`. It is not an agent
-evaluation or a novel mathematical result.
+evaluation or a novel mathematical result. **The replay validates record
+mechanics, not reasoning:** every scope decision is supplied by the fixture;
+a passing gate does not establish that an earlier theorem applies.
 
-Build Plied in the implementation repository, then run:
+With Plied 0.10.0 or later installed (for example through `pipx` or `uv tool`),
+run this from the repository root:
+
+```sh
+python3 examples/scope/replay.py
+```
+
+The replay finds `plied` on PATH by default; no Rust build is needed. To
+choose an installed binary explicitly, use `--plied "$(command -v plied)"`.
+To test changes to Plied itself, build and select this checkout's binary:
 
 ```sh
 cargo build --locked
@@ -36,11 +47,19 @@ Each new thread carries a short comparison in its body: object mapping,
 assumptions, evidence, bounded conclusion and next step. The earlier result has
 an `outcome` and a prose `revisit` condition. No fields or states are added.
 Threads also have an optional author-written `## Summary` followed by the
-full comparison/evidence section. The replay checks extraction through `show`,
-`context` and the frontier while preserving the detailed text. Summaries are
-orientation aids, not evidence or automatic freshness claims.
+full comparison/evidence section. The summary is authored once in the thread
+body; `show`, `context` and the frontier extract it from there. The replay
+checks those views while preserving the detailed text. Summaries are
+orientation aids, not evidence or automatic freshness claims. Plied does not
+generate their prose or check that it stays accurate when the evidence changes.
 The evidence source is explicitly included in the search allowlist so the
 optional [related-work companion](../related/README.md) can retrieve it.
+
+Evidence references such as `E001` resolve to current linked Markdown files.
+This replay does not record source read times or pin those evidence revisions;
+the [research replay](../research/README.md) demonstrates explicit review-input
+pins. [Literature citations](../../README.md#literature) have a separate
+manifest and PDF hash check, but also do not capture read times.
 
 A protocol commitment explicitly adopted for this example requires recording
 the comparison before a `decide` action. Each gate exits 6 without the action's

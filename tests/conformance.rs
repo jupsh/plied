@@ -1570,6 +1570,44 @@ fn a_citation_always_gets_five_results_in_order() {
     assert_eq!(got, [("clearance", "ok"), ("hash", "ok"), ("page", "fail"), ("quote", "unchecked"), ("image", "unchecked")]);
 }
 
+#[test]
+fn citation_checks_current_files_without_saving_a_read_receipt() {
+    let p = Proj::new();
+    with_paper(&p);
+    p.ok(&["new", "thread", "--title", "Citing"]);
+    let record = "plied/threads/T001-citing.md";
+    p.edit(record, "status: open", "status: open\ncites:\n  - paper: Smith2020\n    page: 1\n    quote: Table 2. Bout lengths.");
+    let files = [record, "plied/README.md", "plied.toml", "literature.json", "papers/Smith2020.pdf", "cache/Smith2020/p01.txt"];
+    let check = |exit, hash_status, quote_status| {
+        let before: Vec<_> = files.iter().map(|f| std::fs::read(p.path().join(f)).unwrap()).collect();
+        let out = p.run(&["lit", "check", "--json"]);
+        assert_eq!(out.status.code(), Some(exit), "{}", text(&out));
+        let v = envelope(&out);
+        let results = v["result"]["citations"][0]["results"].as_array().unwrap();
+        let got: Vec<_> = results.iter().map(|r| (r["aspect"].as_str().unwrap(), r["status"].as_str().unwrap())).collect();
+        assert_eq!(got, [("clearance", "ok"), ("hash", hash_status), ("page", "ok"), ("quote", quote_status), ("image", "unchecked")]);
+        for (file, bytes) in files.iter().zip(before) {
+            assert_eq!(std::fs::read(p.path().join(file)).unwrap(), bytes, "lit check must not rewrite {file}");
+        }
+    };
+    check(0, "ok", "ok");
+
+    // A missing hash is unchecked, not a failure or an implicit hash capture.
+    let manifest = std::fs::read(p.path().join("literature.json")).unwrap();
+    p.edit("literature.json", &format!(", \"sha256\": \"{}\"", sha(b"%PDF-fake")), "");
+    check(0, "unchecked", "ok");
+    std::fs::write(p.path().join("literature.json"), manifest).unwrap();
+
+    // A matching PDF digest does not authenticate the supplied page text.
+    p.edit("cache/Smith2020/p01.txt", "Table 2. Bout lengths.", "The current page text has no such quotation.");
+    check(1, "ok", "fail");
+    p.edit("cache/Smith2020/p01.txt", "The current page text has no such quotation.", "Table 2. Bout lengths.");
+
+    // Hash and quote are independent results; neither is a historical verdict.
+    std::fs::write(p.path().join("papers/Smith2020.pdf"), b"%PDF-different-bytes").unwrap();
+    check(1, "fail", "ok");
+}
+
 // ---------------------------------------------------------------------- §3 encodings
 
 #[test]
