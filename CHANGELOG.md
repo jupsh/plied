@@ -6,6 +6,12 @@ are versioned separately from plied itself; see
 
 ## Unreleased
 
+- Document the scope replay's installed-binary/PATH route and state its gate
+  limits before the decisions table. Clarify that summary views extract
+  author-written prose and that literature checks do not capture read times
+  or historical receipts; optional hashes cover PDF bytes, not page text.
+  Citation behavior and the record format are unchanged.
+
 ## 0.14.1 — 2026-11-02
 
 The record format and JSON envelope remain at version 1. Diagnostic
